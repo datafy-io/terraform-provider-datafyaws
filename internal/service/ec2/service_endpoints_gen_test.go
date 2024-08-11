@@ -447,6 +447,14 @@ func testEndpointCase(t *testing.T, region string, testcase endpointTestCase, ca
 	}
 
 	expectedDiags := testcase.expected.diags
+	expectedDiags = append(
+		expectedDiags,
+		errs.NewWarningDiagnostic(
+			"Datafy Token was not found for provider",
+			"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications.",
+		),
+	)
+
 	diags := p.Configure(ctx, terraformsdk.NewResourceConfigRaw(config))
 
 	if diff := cmp.Diff(diags, expectedDiags, cmp.Comparer(sdkdiag.Comparer)); diff != "" {
