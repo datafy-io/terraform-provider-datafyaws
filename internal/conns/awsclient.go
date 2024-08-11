@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/aws-sdk-go-base/v2/endpoints"
 	baselogging "github.com/hashicorp/aws-sdk-go-base/v2/logging"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/dns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
@@ -46,6 +47,16 @@ type AWSClient struct {
 	s3USEast1RegionalEndpoint string // From provider configuration.
 	stsRegion                 string // From provider configuration.
 	terraformVersion          string // From provider configuration.
+
+	datafyClient datafy.Client
+}
+
+func (c *AWSClient) DatafyClient(context.Context) datafy.Client {
+	return c.datafyClient
+}
+
+func (c *AWSClient) SetDatafyClient(client datafy.Client) {
+	c.datafyClient = client
 }
 
 func (c *AWSClient) SetServicePackages(_ context.Context, servicePackages map[string]ServicePackage) {
