@@ -45,7 +45,7 @@ type fwprovider struct {
 }
 
 func (*fwprovider) Metadata(ctx context.Context, request provider.MetadataRequest, response *provider.MetadataResponse) {
-	response.TypeName = "aws"
+	response.TypeName = "datafyaws"
 }
 
 // Schema returns the schema for this provider's configuration.
@@ -53,6 +53,15 @@ func (*fwprovider) Schema(ctx context.Context, request provider.SchemaRequest, r
 	// This schema must match exactly the Terraform Protocol v5 (Terraform Plugin SDK v2) provider's schema.
 	response.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"datafy_token": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				Description: "Datafy token. Can also be configured using the `DATAFY_TOKEN` environment variable.",
+			},
+			"datafy_url": schema.StringAttribute{
+				Optional:    true,
+				Description: "Datafy Url. Can also be configured using the `DATAFY_URL` environment variable.",
+			},
 			"access_key": schema.StringAttribute{
 				Optional:    true,
 				Description: "The access key for API operations. You can retrieve this\nfrom the 'Security & Credentials' section of the AWS console.",
