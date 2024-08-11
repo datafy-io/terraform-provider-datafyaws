@@ -140,6 +140,7 @@ sso_start_url = https://d-123456789a.awsapps.com/start#
 			servicemocks.InitSessionTestEnv(t)
 
 			config := map[string]any{
+				"datafy_token":                "12324789",
 				"access_key":                  servicemocks.MockStaticAccessKey,
 				"secret_key":                  servicemocks.MockStaticSecretKey,
 				"skip_credentials_validation": true,
@@ -253,6 +254,7 @@ func (d *testCaseDriver) Setup(t *testing.T) {
 		ts.Close()
 	})
 	d.config.AddEndpoint("sts", ts.URL)
+	d.config.SetDatafyToken("1232456789")
 }
 
 func (d testCaseDriver) Apply(ctx context.Context, t *testing.T) (context.Context, configtesting.Thing) {
@@ -329,6 +331,10 @@ func (c configurer) AddSharedConfigFile(f string) {
 		files = append(files, f)
 		c["shared_config_files"] = files
 	}
+}
+
+func (c configurer) SetDatafyToken(s string) {
+	c["datafy_token"] = s
 }
 
 func (c configurer) SetAccessKey(s string) {
