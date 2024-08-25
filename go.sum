@@ -529,6 +529,8 @@ github.com/cyphar/filepath-securejoin v0.2.4 h1:Ugdm7cg7i6ZK6x3xDF1oEu1nfkyfH53E
 github.com/cyphar/filepath-securejoin v0.2.4/go.mod h1:aPGpWjXOXUn2NCNjFvBE6aRxGGx79pTxQpKOJNYHHl4=
 github.com/datafy-io/iac-gateway-lambda v0.0.0-20240818093629-e55013b5d148 h1:/MX3myHCOpVd8/4x90EC/b5JCl6jPE4mgcNy6Ixt7Wc=
 github.com/datafy-io/iac-gateway-lambda v0.0.0-20240818093629-e55013b5d148/go.mod h1:hGHqCgkddFTrKLB74LimksSa0FD8PgN1+LJATn6C29Q=
+github.com/datafy-io/iac-gateway-lambda v0.0.3-0.20240821184302-724643c5b8a3 h1:TSqzeXOMxwyGQxtk8wtcqP6XdPdY+Ery1fCVPqBZM2w=
+github.com/datafy-io/iac-gateway-lambda v0.0.3-0.20240821184302-724643c5b8a3/go.mod h1:hGHqCgkddFTrKLB74LimksSa0FD8PgN1+LJATn6C29Q=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

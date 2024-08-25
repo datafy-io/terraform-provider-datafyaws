@@ -242,7 +242,7 @@ require (
 	github.com/aws/smithy-go v1.20.4
 	github.com/beevik/etree v1.4.1
 	github.com/cedar-policy/cedar-go v0.0.0-20240318205125-470d1fe984bb
-	github.com/datafy-io/iac-gateway-lambda v0.0.0-20240818093629-e55013b5d148
+	github.com/datafy-io/iac-gateway-lambda v0.0.3-0.20240821184302-724643c5b8a3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dlclark/regexp2 v1.11.4
 	github.com/gertd/go-pluralize v0.2.1
