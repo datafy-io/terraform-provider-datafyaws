@@ -231,9 +231,6 @@ func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWS
 	client.s3USEast1RegionalEndpoint = c.S3USEast1RegionalEndpoint
 	client.stsRegion = c.STSRegion
 
-	if c.DatafyToken == "" {
-		diags = sdkdiag.AppendErrorf(diags, "Datafy Token was not provided")
-	}
 	if c.DatafyUrl == "" {
 		c.DatafyUrl = datafy.DefaultUrl
 	}
