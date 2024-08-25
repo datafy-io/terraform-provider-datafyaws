@@ -1,5 +1,5 @@
 DATAFY_PROJECT_NAME := terraform-provider-datafyaws
-DATAFY_MODIFIED_PACKAGES=./internal/service/ec2 ./internal/provider
+DATAFY_MODIFIED_PACKAGES= ./internal/datafy ./internal/service/ec2 ./internal/provider
 
 default: datafy-build
 
@@ -13,6 +13,9 @@ datafy-install: install datafy-rename-bin
 datafy-rename-bin:
 	@mv ~/go/bin/terraform-provider-aws ~/go/bin/$(DATAFY_PROJECT_NAME)
 
+datafy-test:
+	@echo "make: Running unit tests..."
+	$(GO_VER) test -count $(TEST_COUNT) $(DATAFY_MODIFIED_PACKAGES) $(TESTARGS) -timeout=5m
 
 .PHONY: datafy-rebase
 datafy-rebase:
