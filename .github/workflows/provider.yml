@@ -147,7 +147,7 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-pkg-mod-${{ hashFiles('go.sum') }}
       - name: Go Test
-        run: go test ./internal/service/ec2 ./internal/provider
+        run: go test ./internal/datafy ./internal/service/ec2 ./internal/provider
 
   import-lint:
     needs: [go_build]
