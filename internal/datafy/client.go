@@ -1,48 +1,51 @@
 package datafy
 
 import (
-	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/datafy-io/iac-gateway-lambda/iacgateway"
-	"strings"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 )
-
-func apiNotFound(err error) bool {
-	return strings.Contains(err.Error(), "404")
-}
-
-func newVolume(volume iacgateway.AWSVolume) *Volume {
-	return &Volume{
-		Volume: &awstypes.Volume{
-			VolumeId: aws.String(volume.VolumeId),
-		},
-		IsManaged:     volume.IsManaged,
-		IsDatafied:    volume.IsDatafied,
-		IsReplacement: volume.IsReplacement,
-	}
-}
 
 type Client struct {
 	config Config
-
-	client *iacgateway.AWSClient
 }
 
 func NewDatafyClient(config *Config) *Client {
 	return &Client{
 		config: *config,
-		client: iacgateway.NewAwsClient(config.Url, config.Token),
 	}
 }
 
-func (c *Client) GetVolume(volumeId string) (*Volume, error) {
-	volume, err := c.client.GetVolume(volumeId)
+func (c *Client) sendRequest(method, endpoint string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, fmt.Sprintf("%s/%s", c.config.Url, endpoint), body)
 	if err != nil {
-		if apiNotFound(err) {
-			return nil, NotFoundError
-		}
 		return nil, err
 	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.config.Token))
 
-	return newVolume(*volume), nil
+	client := &http.Client{}
+	return client.Do(req)
+}
+
+func (c *Client) GetVolume(volumeId string) (*Volume, error) {
+	resp, err := c.sendRequest(http.MethodGet, fmt.Sprintf("api/v1/aws/volumes/%s", volumeId), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var out Volume
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return nil, err
+		}
+		return &out, nil
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, NotFoundError
+	}
+
+	return nil, fmt.Errorf(resp.Status)
 }
