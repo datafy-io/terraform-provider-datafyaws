@@ -50,7 +50,7 @@ func (p *fwprovider) Schema(ctx context.Context, req provider.SchemaRequest, res
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"datafy_token": schema.StringAttribute{
-				Optional:    true,
+				Required:    true,
 				Description: "Datafy token. Can also be configured using the `DATAFY_TOKEN` environment variable.",
 			},
 			"datafy_url": schema.StringAttribute{
