@@ -2408,26 +2408,28 @@ func readBlockDevicesFromInstance(ctx context.Context, d *schema.ResourceData, m
 	if v, ok := d.GetOk("ebs_block_device"); ok {
 		for _, v := range v.(*schema.Set).List() {
 			bd := v.(map[string]interface{})
-
-			if !slices.ContainsFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
-				return m["volume_id"].(string) == bd["volume_id"].(string)
-			}) {
-				// if not found in the blockDevices["ebs"], it means the volume is managed (and may also have been removed)
-				// or was replaced (new volume due to undatafy), both cases we need to add them back from the state
-				if datafyVol, err := dc.GetVolume(bd["volume_id"].(string)); err == nil {
-					if datafyVol.IsManaged || datafyVol.IsReplacement {
-						if datafyVol.IsReplacement {
-							bd["volume_id"] = aws.ToString(datafyVol.VolumeId)
-							blockDevices["ebs"] = slices.DeleteFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
-								return m["volume_id"].(string) == *datafyVol.VolumeId
-							})
+			// the volumeId will be empty if its the first creation of the resource
+			if volumeId, ok := bd["volume_id"].(string); ok && volumeId != "" {
+				if !slices.ContainsFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
+					return m["volume_id"].(string) == bd["volume_id"].(string)
+				}) {
+					// if not found in the blockDevices["ebs"], it means the volume is managed (and may also have been removed)
+					// or was replaced (new volume due to undatafy), both cases we need to add them back from the state
+					if datafyVol, err := dc.GetVolume(bd["volume_id"].(string)); err == nil {
+						if datafyVol.IsManaged || datafyVol.IsReplacement {
+							if datafyVol.IsReplacement {
+								bd["volume_id"] = aws.ToString(datafyVol.VolumeId)
+								blockDevices["ebs"] = slices.DeleteFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
+									return m["volume_id"].(string) == *datafyVol.VolumeId
+								})
+							}
+							blockDevices["ebs"] = append(blockDevices["ebs"].([]map[string]interface{}), bd)
 						}
-						blockDevices["ebs"] = append(blockDevices["ebs"].([]map[string]interface{}), bd)
+					} else if datafy.NotFound(err) {
+						continue
+					} else {
+						return blockDevices, err
 					}
-				} else if datafy.NotFound(err) {
-					continue
-				} else {
-					return blockDevices, err
 				}
 			}
 		}
