@@ -203,7 +203,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 			volumeID = newId
 		}
 	} else if !datafy.NotFound(datafyErr) {
-		return sdkdiag.AppendErrorf(diags, "deleting EBS Volum Attachment (%s): %s", d.Id(), datafyErr)
+		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s) Attachment (%s): %s", volumeID, d.Id(), datafyErr)
 	}
 
 	if _, ok := d.GetOk("stop_instance_before_detaching"); ok {
