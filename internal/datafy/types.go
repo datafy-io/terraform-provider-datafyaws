@@ -10,18 +10,18 @@ import (
 type Volume struct {
 	*types.Volume
 
-	IsManaged     bool
-	IsDatafied    bool
-	IsReplacement bool
+	IsManaged  bool
+	IsDatafied bool
+	ReplacedBy string
 }
 
 func (v *Volume) UnmarshalJSON(data []byte) error {
 	iac := struct {
 		VolumeId string `json:"volumeId"`
 
-		IsManaged     bool `json:"isManaged"`
-		IsDatafied    bool `json:"isDatafied"`
-		IsReplacement bool `json:"isReplacement"`
+		IsManaged  bool   `json:"isManaged"`
+		IsDatafied bool   `json:"isDatafied"`
+		ReplacedBy string `json:"replacedBy"`
 	}{}
 	if err := json.Unmarshal(data, &iac); err != nil {
 		return err
@@ -32,7 +32,7 @@ func (v *Volume) UnmarshalJSON(data []byte) error {
 	}
 	v.IsManaged = iac.IsManaged
 	v.IsDatafied = iac.IsDatafied
-	v.IsReplacement = iac.IsReplacement
+	v.ReplacedBy = iac.ReplacedBy
 
 	return nil
 }
