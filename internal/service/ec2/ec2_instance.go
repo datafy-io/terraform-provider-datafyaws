@@ -2417,11 +2417,11 @@ func readBlockDevicesFromInstance(ctx context.Context, d *schema.ResourceData, m
 					// if not found in the blockDevices["ebs"], it means the volume is managed (and may also have been removed)
 					// or was replaced (new volume due to undatafy), both cases we need to add them back from the state
 					if datafyVol, err := dc.GetVolume(bd["volume_id"].(string)); err == nil {
-						if datafyVol.IsManaged || datafyVol.IsReplacement {
-							if datafyVol.IsReplacement {
-								bd["volume_id"] = aws.ToString(datafyVol.VolumeId)
+						if datafyVol.IsManaged || datafyVol.ReplacedBy != "" {
+							if datafyVol.ReplacedBy != "" {
+								bd["volume_id"] = datafyVol.ReplacedBy
 								blockDevices["ebs"] = slices.DeleteFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
-									return m["volume_id"].(string) == *datafyVol.VolumeId
+									return m["volume_id"].(string) == datafyVol.ReplacedBy
 								})
 							}
 							blockDevices["ebs"] = append(blockDevices["ebs"].([]map[string]interface{}), bd)
