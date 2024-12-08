@@ -231,6 +231,11 @@ func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWS
 	if c.DatafyUrl == "" {
 		c.DatafyUrl = datafy.DefaultUrl
 	}
+	if c.DatafyToken == "" {
+		diags = append(diags, errs.NewWarningDiagnostic(
+			"Datafy Token was not found for provider",
+			"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications."))
+	}
 	client.datafyConfig = &datafy.Config{
 		Token: c.DatafyToken,
 		Url:   c.DatafyUrl,

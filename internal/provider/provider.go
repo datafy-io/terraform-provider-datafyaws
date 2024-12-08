@@ -39,7 +39,7 @@ func New(ctx context.Context) (*schema.Provider, error) {
 		Schema: map[string]*schema.Schema{
 			"datafy_token": {
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
 				Description: "Datafy token. Can also be configured using the `DATAFY_TOKEN` environment variable.",
 				DefaultFunc: schema.EnvDefaultFunc("DATAFY_TOKEN", nil),
 			},
