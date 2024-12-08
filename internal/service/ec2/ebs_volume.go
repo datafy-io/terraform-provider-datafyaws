@@ -205,12 +205,11 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 
 			// if the volume was replaced (new source due to undatafy), it means the new
 			// volume is now the source volume, and we need to set the "new" values from aws
-			if datafyVolume.IsReplacement {
-				newId := aws.ToString(datafyVolume.VolumeId)
-				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), newId)
+			if datafyVolume.ReplacedBy != "" {
+				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), datafyVolume.ReplacedBy)
 
-				d.SetId(newId)
-				volume, err = findEBSVolumeByID(ctx, conn, newId)
+				d.SetId(datafyVolume.ReplacedBy)
+				volume, err = findEBSVolumeByID(ctx, conn, datafyVolume.ReplacedBy)
 			}
 		} else if datafy.NotFound(datafyErr) {
 			log.Printf("[WARN] EBS Volume %s not found, removing from state", d.Id())
@@ -262,11 +261,10 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta i
 			if datafyVolume.IsManaged {
 				return sdkdiag.AppendErrorf(diags, "can't modify datafied EBS Volume (%s)", d.Id())
 			}
-			if datafyVolume.IsReplacement {
-				newId := aws.ToString(datafyVolume.VolumeId)
-				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), newId)
+			if datafyVolume.ReplacedBy != "" {
+				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), datafyVolume.ReplacedBy)
 
-				d.SetId(newId)
+				d.SetId(datafyVolume.ReplacedBy)
 				if diags := resourceEBSVolumeRead(ctx, d, meta); diags.HasError() {
 					return diags
 				}
@@ -334,10 +332,9 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta i
 		if datafyVolume.IsManaged {
 			return sdkdiag.AppendErrorf(diags, "can't delete datafied EBS Volume (%s). Please undatafy the EBS Volume first", d.Id())
 		}
-		if datafyVolume.IsReplacement {
-			newId := aws.ToString(datafyVolume.VolumeId)
-			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), newId)
-			d.SetId(newId)
+		if datafyVolume.ReplacedBy != "" {
+			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), datafyVolume.ReplacedBy)
+			d.SetId(datafyVolume.ReplacedBy)
 		}
 	} else if !datafy.NotFound(datafyErr) {
 		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", d.Id(), datafyErr)
