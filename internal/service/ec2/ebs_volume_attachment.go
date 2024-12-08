@@ -155,9 +155,8 @@ func resourceVolumeAttachmentRead(ctx context.Context, d *schema.ResourceData, m
 
 			// if the volume was replaced (new source due to undatafy), it means the new
 			// volume is now the source volume, and we need to set the "new" values from aws
-			if datafyVolume.IsReplacement {
-				newId := aws.ToString(datafyVolume.VolumeId)
-				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), newId)
+			if datafyVolume.ReplacedBy != "" {
+				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), datafyVolume.ReplacedBy)
 
 				// let's hope it's the same device name
 				d.SetId(volumeAttachmentID(deviceName, volumeID, instanceID))
@@ -197,10 +196,9 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 		if datafyVolume.IsManaged {
 			return sdkdiag.AppendErrorf(diags, "can't delete EBS Volume Attachment (%s) of an datafid EBS Volume (%s). Please undatafy the EBS Volume first", d.Id(), volumeID)
 		}
-		if datafyVolume.IsReplacement {
-			newId := aws.ToString(datafyVolume.VolumeId)
-			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), newId)
-			volumeID = newId
+		if datafyVolume.ReplacedBy != "" {
+			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), datafyVolume.ReplacedBy)
+			volumeID = datafyVolume.ReplacedBy
 		}
 	} else if !datafy.NotFound(datafyErr) {
 		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s) Attachment (%s): %s", volumeID, d.Id(), datafyErr)
