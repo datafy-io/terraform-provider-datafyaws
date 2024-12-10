@@ -199,7 +199,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 			return sdkdiag.AppendErrorf(diags, "can't delete EBS Volume Attachment (%s) of a datafid EBS Volume (%s). Please undatafy the EBS Volume first", d.Id(), volumeID)
 		}
 		if datafyVolume.ReplacedBy != "" {
-			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", d.Id(), datafyVolume.ReplacedBy)
+			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeID)
 			volumeID = datafyVolume.ReplacedBy
 		}
 	} else if !datafy.NotFound(datafyErr) {
