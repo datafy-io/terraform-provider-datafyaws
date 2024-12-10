@@ -222,7 +222,7 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, d.Id())
 
 				d.SetId(datafyVolume.ReplacedBy)
-				volume, err = findEBSVolumeByID(ctx, conn, datafyVolume.ReplacedBy)
+				return resourceEBSVolumeRead(ctx, d, meta)
 			}
 		} else if datafy.NotFound(datafyErr) {
 			log.Printf("[WARN] EBS Volume %s not found, removing from state", d.Id())
@@ -347,7 +347,9 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta i
 		}
 		if datafyVolume.ReplacedBy != "" {
 			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, d.Id())
+
 			d.SetId(datafyVolume.ReplacedBy)
+			return resourceEBSVolumeDelete(ctx, d, meta)
 		}
 	} else if !datafy.NotFound(datafyErr) {
 		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", d.Id(), datafyErr)
