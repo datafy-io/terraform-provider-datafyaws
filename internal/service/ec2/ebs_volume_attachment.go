@@ -157,9 +157,11 @@ func resourceVolumeAttachmentRead(ctx context.Context, d *schema.ResourceData, m
 			// volume is now the source volume, and we need to set the "new" values from aws
 			if datafyVolume.ReplacedBy != "" {
 				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeID)
+				volumeID = datafyVolume.ReplacedBy
 
-				// let's hope it's the same device name
 				d.SetId(volumeAttachmentID(deviceName, volumeID, instanceID))
+				d.Set("volume_id", volumeID)
+				_, err = findVolumeAttachment(ctx, conn, volumeID, instanceID, deviceName)
 			}
 		} else if datafy.NotFound(datafyErr) {
 			log.Printf("[WARN] EBS Volume Attachment %s not found, removing from state", d.Id())
