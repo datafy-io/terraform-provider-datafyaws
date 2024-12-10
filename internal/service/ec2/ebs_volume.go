@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,6 +52,18 @@ func resourceEBSVolume() *schema.Resource {
 		CustomizeDiff: customdiff.Sequence(
 			resourceEBSVolumeCustomizeDiff,
 			verify.SetTagsDiff,
+			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+				// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
+				if changes := diff.GetChangedKeysPrefix(""); len(changes) > 0 {
+					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+					if datafyVolume, datafyErr := dc.GetVolume(diff.Id()); datafyErr == nil {
+						if datafyVolume.IsManaged {
+							return fmt.Errorf("can't modify datafied EBS Volume (%s). Changed keys: (%s)", diff.Id(), strings.Join(changes, ","))
+						}
+					}
+				}
+				return nil
+			},
 		),
 
 		Schema: map[string]*schema.Schema{
