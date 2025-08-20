@@ -164,6 +164,40 @@ func setTagsOut(ctx context.Context, tags any) {
 	}
 }
 
+func updateVolumeTags(ctx context.Context, conn *ec2.Client, dc *datafy.Client, identifier string, oldTagsMap, newTagsMap any, optFns ...func(*ec2.Options)) error {
+	volume, err := dc.GetVolume(identifier)
+	if err != nil {
+		return fmt.Errorf("can't find EBS volume (%s): %s", identifier, err)
+	}
+
+	if volume.IsManaged {
+		dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
+			Filters: []awstypes.Filter{
+				{
+					Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
+					Values: []string{datafy.ManagedByTagValue},
+				},
+				{
+					Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
+					Values: []string{identifier},
+				},
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
+		} else if len(dvo.Volumes) == 0 {
+			return fmt.Errorf("can't find datafy volumes of EBS volume (%s)", identifier)
+		}
+
+		for _, vid := range dvo.Volumes {
+			if err := updateTags(ctx, conn, aws.ToString(vid.VolumeId), oldTagsMap, newTagsMap, optFns...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // updateTags updates ec2 service tags.
 // The identifier is typically the Amazon Resource Name (ARN), although
 // it may also be a different identifier depending on the service.
@@ -209,38 +243,8 @@ func updateTags(ctx context.Context, conn *ec2.Client, identifier string, oldTag
 // UpdateTags updates ec2 service tags.
 // It is called from outside this package.
 func (p *servicePackage) UpdateTags(ctx context.Context, meta any, identifier string, oldTags, newTags any) error {
-	conn := meta.(*conns.AWSClient).EC2Client(ctx)
-
 	if strings.HasPrefix(identifier, "vol-") {
-		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		if volume, err := dc.GetVolume(identifier); err == nil {
-			if volume.IsManaged {
-				dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-					Filters: []awstypes.Filter{
-						{
-							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
-							Values: []string{datafy.ManagedByTagValue},
-						},
-						{
-							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
-							Values: []string{identifier},
-						},
-					},
-				})
-				if err != nil {
-					return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
-				} else if len(dvo.Volumes) == 0 {
-					return fmt.Errorf("can't find datafy volumes of EBS volume (%s)", identifier)
-				}
-
-				for _, vid := range dvo.Volumes {
-					if err := updateTags(ctx, conn, aws.ToString(vid.VolumeId), oldTags, newTags); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
-		}
+		return updateVolumeTags(ctx, meta.(*conns.AWSClient).EC2Client(ctx), meta.(*conns.AWSClient).DatafyClient(ctx), identifier, oldTags, newTags)
 	}
-	return updateTags(ctx, conn, identifier, oldTags, newTags)
+	return updateTags(ctx, meta.(*conns.AWSClient).EC2Client(ctx), identifier, oldTags, newTags)
 }
