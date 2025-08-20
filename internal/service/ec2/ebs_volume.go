@@ -53,6 +53,22 @@ func resourceEBSVolume() *schema.Resource {
 		CustomizeDiff: customdiff.Sequence(
 			resourceEBSVolumeCustomizeDiff,
 			verify.SetTagsDiff,
+			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+				// once the volume is managed, datafy has control on the volume. And ONLY tags can be updated via terraform.
+				changes := slices.DeleteFunc(diff.GetChangedKeysPrefix(""), func(s string) bool {
+					return strings.HasPrefix(s, "tags.")
+				})
+				if len(changes) > 0 {
+					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+					if datafyVolume, datafyErr := dc.GetVolume(diff.Id()); datafyErr == nil {
+						if datafyVolume.IsManaged {
+							return fmt.Errorf("can't modify datafied EBS Volume (%s). Changed keys: (%s)", diff.Id(), strings.Join(changes, ","))
+						}
+					}
+				}
+
+				return nil
+			},
 		),
 
 		Schema: map[string]*schema.Schema{
@@ -203,7 +219,6 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 			// if we are managing this volume, just return the state as is after updating the tags
 			if datafyVolume.IsManaged {
 				dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-					MaxResults: aws.Int32(1),
 					Filters: []awstypes.Filter{
 						{
 							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
