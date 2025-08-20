@@ -4,12 +4,14 @@ package ec2
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/logging"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
@@ -207,5 +209,38 @@ func updateTags(ctx context.Context, conn *ec2.Client, identifier string, oldTag
 // UpdateTags updates ec2 service tags.
 // It is called from outside this package.
 func (p *servicePackage) UpdateTags(ctx context.Context, meta any, identifier string, oldTags, newTags any) error {
-	return updateTags(ctx, meta.(*conns.AWSClient).EC2Client(ctx), identifier, oldTags, newTags)
+	conn := meta.(*conns.AWSClient).EC2Client(ctx)
+
+	if strings.HasPrefix(identifier, "vol-") {
+		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+		if volume, err := dc.GetVolume(identifier); err == nil {
+			if volume.IsManaged {
+				dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
+					Filters: []awstypes.Filter{
+						{
+							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
+							Values: []string{datafy.ManagedByTagValue},
+						},
+						{
+							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
+							Values: []string{identifier},
+						},
+					},
+				})
+				if err != nil {
+					return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
+				} else if len(dvo.Volumes) == 0 {
+					return fmt.Errorf("can't find datafy volumes of EBS volume (%s)", identifier)
+				}
+
+				for _, vid := range dvo.Volumes {
+					if err := updateTags(ctx, conn, aws.ToString(vid.VolumeId), oldTags, newTags); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		}
+	}
+	return updateTags(ctx, conn, identifier, oldTags, newTags)
 }

@@ -11,6 +11,7 @@ const (
 	ManagedByTagKey    = "Managed-By"
 	ManagedByTagValue  = "Datafy.io"
 	SourceVolumeTagKey = "datafy:source-volume:id"
+	TagsPrefix         = "datafy:"
 )
 
 type Volume struct {
