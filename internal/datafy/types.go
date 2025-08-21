@@ -7,13 +7,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-const (
-	ManagedByTagKey    = "Managed-By"
-	ManagedByTagValue  = "Datafy.io"
-	SourceVolumeTagKey = "datafy:source-volume:id"
-	TagsPrefix         = "datafy:"
-)
-
 type Volume struct {
 	*types.Volume
 

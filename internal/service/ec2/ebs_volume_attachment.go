@@ -217,18 +217,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 	if datafyVolume, datafyErr := dc.GetVolume(volumeID); datafyErr == nil {
 		if datafyVolume.IsManaged {
-			dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-				Filters: []awstypes.Filter{
-					{
-						Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
-						Values: []string{datafy.ManagedByTagValue},
-					},
-					{
-						Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
-						Values: []string{volumeID},
-					},
-				},
-			})
+			dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
 			if err != nil {
 				return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s) Attachement (%s): %s", volumeID, d.Id(), err)
 			} else if len(dvo.Volumes) == 0 {

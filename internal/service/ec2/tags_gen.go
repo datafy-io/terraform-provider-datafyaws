@@ -171,18 +171,7 @@ func updateVolumeTags(ctx context.Context, conn *ec2.Client, dc *datafy.Client, 
 	}
 
 	if volume.IsManaged {
-		dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-			Filters: []awstypes.Filter{
-				{
-					Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
-					Values: []string{datafy.ManagedByTagValue},
-				},
-				{
-					Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
-					Values: []string{identifier},
-				},
-			},
-		})
+		dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(identifier))
 		if err != nil {
 			return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
 		} else if len(dvo.Volumes) == 0 {

@@ -218,28 +218,14 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 		if datafyVolume, datafyErr := dc.GetVolume(d.Id()); datafyErr == nil {
 			// if we are managing this volume, just return the state as is after updating the tags
 			if datafyVolume.IsManaged {
-				dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-					Filters: []awstypes.Filter{
-						{
-							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
-							Values: []string{datafy.ManagedByTagValue},
-						},
-						{
-							Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
-							Values: []string{d.Id()},
-						},
-					},
-				})
+				dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
 				if err != nil {
 					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
 				} else if len(dvo.Volumes) == 0 {
 					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
 				}
 
-				setTagsOut(ctx, slices.DeleteFunc(dvo.Volumes[0].Tags, func(t awstypes.Tag) bool {
-					key := aws.ToString(t.Key)
-					return strings.HasPrefix(key, datafy.TagsPrefix) || key == datafy.ManagedByTagKey
-				}))
+				setTagsOut(ctx, datafy.RemoveDatafyTags(dvo.Volumes[0].Tags))
 				return diags
 			}
 
@@ -372,18 +358,7 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta i
 	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 	if datafyVolume, datafyErr := dc.GetVolume(d.Id()); datafyErr == nil {
 		if datafyVolume.IsManaged {
-			dvo, err := conn.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
-				Filters: []awstypes.Filter{
-					{
-						Name:   aws.String(fmt.Sprintf("tag:%s", datafy.ManagedByTagKey)),
-						Values: []string{datafy.ManagedByTagValue},
-					},
-					{
-						Name:   aws.String(fmt.Sprintf("tag:%s", datafy.SourceVolumeTagKey)),
-						Values: []string{d.Id()},
-					},
-				},
-			})
+			dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
 			if err != nil {
 				return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
 			} else if len(dvo.Volumes) == 0 {
