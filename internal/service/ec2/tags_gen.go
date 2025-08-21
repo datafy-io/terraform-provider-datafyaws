@@ -183,8 +183,9 @@ func updateVolumeTags(ctx context.Context, conn *ec2.Client, dc *datafy.Client, 
 				return err
 			}
 		}
+		return nil
 	}
-	return nil
+	return updateTags(ctx, conn, identifier, oldTagsMap, newTagsMap, optFns...)
 }
 
 // updateTags updates ec2 service tags.
