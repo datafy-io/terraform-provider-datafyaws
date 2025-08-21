@@ -1509,6 +1509,7 @@ func resourceInstanceRead(ctx context.Context, d *schema.ResourceData, meta inte
 func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
+	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 
 	if d.HasChange("volume_tags") && !d.IsNewResource() {
 		volIDs, err := getInstanceVolIDs(ctx, conn, d.Id())
@@ -1518,7 +1519,6 @@ func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta in
 
 		o, n := d.GetChange("volume_tags")
 
-		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		for _, volID := range volIDs {
 			if err := updateVolumeTags(ctx, conn, dc, volID, o, n); err != nil {
 				return sdkdiag.AppendErrorf(diags, "updating volume_tags (%s): %s", volID, err)
@@ -2045,7 +2045,6 @@ func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta in
 		if d.HasChange("root_block_device.0.tags") {
 			o, n := d.GetChange("root_block_device.0.tags")
 
-			dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 			if err := updateVolumeTags(ctx, conn, dc, volID, o, n); err != nil {
 				return sdkdiag.AppendErrorf(diags, "updating tags for volume (%s): %s", volID, err)
 			}
@@ -2054,7 +2053,6 @@ func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta in
 		if d.HasChange("root_block_device.0.tags_all") && !d.HasChange("root_block_device.0.tags") {
 			o, n := d.GetChange("root_block_device.0.tags_all")
 
-			dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 			if err := updateVolumeTags(ctx, conn, dc, volID, o, n); err != nil {
 				return sdkdiag.AppendErrorf(diags, "updating tags for volume (%s): %s", volID, err)
 			}
