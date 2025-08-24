@@ -35,6 +35,6 @@ func DescribeDatafiedVolumesInput(sourceVolumeId string) *ec2.DescribeVolumesInp
 func RemoveDatafyTags(tags []types.Tag) []types.Tag {
 	return slices.DeleteFunc(tags, func(t types.Tag) bool {
 		key := aws.ToString(t.Key)
-		return strings.HasPrefix(key, tagsPrefix) || key == managedByTagKey
+		return strings.HasPrefix(key, tagsPrefix) || (key == managedByTagKey && aws.ToString(t.Value) == managedByTagValue)
 	})
 }
