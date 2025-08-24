@@ -213,16 +213,18 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 	volume, err := findEBSVolumeByID(ctx, conn, d.Id())
 
 	if !d.IsNewResource() && tfresource.NotFound(err) {
+		volumeId := d.Id()
+
 		// if not found on aws, it may mean we datafied it and deleted the volume
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		if datafyVolume, datafyErr := dc.GetVolume(d.Id()); datafyErr == nil {
+		if datafyVolume, datafyErr := dc.GetVolume(volumeId); datafyErr == nil {
 			// if we are managing this volume, just return the state as is after updating the tags
 			if datafyVolume.IsManaged {
-				dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
+				dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(volumeId))
 				if err != nil {
-					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
+					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", volumeId, err)
 				} else if len(dvo.Volumes) == 0 {
-					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
+					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", volumeId)
 				}
 
 				setTagsOut(ctx, datafy.RemoveDatafyTags(dvo.Volumes[0].Tags))
@@ -234,12 +236,12 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 			if datafyVolume.ReplacedBy != "" {
 				d.SetId(datafyVolume.ReplacedBy)
 				return append(
-					sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, d.Id()),
+					sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeId),
 					resourceEBSVolumeRead(ctx, d, meta)...,
 				)
 			}
 		} else if datafy.NotFound(datafyErr) {
-			log.Printf("[WARN] EBS Volume %s not found, removing from state", d.Id())
+			log.Printf("[WARN] EBS Volume %s not found, removing from state", volumeId)
 			d.SetId("")
 			return diags
 		} else {
