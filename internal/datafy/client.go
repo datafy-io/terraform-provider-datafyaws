@@ -35,6 +35,11 @@ type createFromSnapshotsRequest struct {
 	VolumeProperties createFromSnapshotsVolumeProperties `json:"volumeProperties"`
 }
 
+type attachVolumeRequest struct {
+	InstanceId string `json:"instanceId"`
+	DeviceName string `json:"deviceName"`
+}
+
 type Client struct {
 	config Config
 }
@@ -143,4 +148,23 @@ func (c *Client) CreateVolumeFromSnapshot(snapshotIds []string, sizeBytes int64,
 	}
 
 	return nil, fmt.Errorf(resp.Status)
+}
+
+func (c *Client) AttachVolume(instanceId string, volumeId string, deviceName string) error {
+	request := attachVolumeRequest{
+		InstanceId: instanceId,
+		DeviceName: deviceName,
+	}
+
+	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/attach", volumeId), request)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+
+	return fmt.Errorf(resp.Status)
 }

@@ -129,23 +129,58 @@ func resourceVolumeAttachmentCreate(ctx context.Context, d *schema.ResourceData,
 			return sdkdiag.AppendErrorf(diags, "waiting for EC2 Instance (%s) to be ready: %s", instanceID, err)
 		}
 
-		input := &ec2.AttachVolumeInput{
-			Device:     aws.String(deviceName),
-			InstanceId: aws.String(instanceID),
-			VolumeId:   aws.String(volumeID),
+		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+		datafyVolume, err := dc.GetVolume(volumeID)
+		if err != nil {
+			if datafy.NotFound(err) {
+				return sdkdiag.AppendErrorf(diags, "datafy volume (%s) not found", volumeID)
+			}
+			return sdkdiag.AppendErrorf(diags, "attaching EBS Volume (%s) to EC2 Instance (%s): %s", volumeID, instanceID, err)
 		}
 
-		_, err := conn.AttachVolume(ctx, input)
+		if datafyVolume.IsManaged {
+			err := dc.AttachVolume(instanceID, volumeID, deviceName)
+			if err != nil {
+				return sdkdiag.AppendErrorf(diags, "attaching datafy managed EBS Volume (%s) to EC2 Instance (%s): %s", volumeID, instanceID, err)
+			}
 
-		if err != nil {
-			return sdkdiag.AppendErrorf(diags, "attaching EBS Volume (%s) to EC2 Instance (%s): %s", volumeID, instanceID, err)
+			dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(volumeID))
+			if err != nil {
+				return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s) Attachement (%s): %s", volumeID, instanceID, err)
+			} else if len(dvo.Volumes) == 0 {
+				return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s) Attachement (%s)", volumeID, instanceID)
+			}
+
+			for _, volume := range dvo.Volumes {
+				if _, err := waitDatafyVolumeAttachmentCreated(ctx, conn, aws.ToString(volume.VolumeId), instanceID, d.Timeout(schema.TimeoutCreate)); err != nil {
+					return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) Attachment (%s) create: %s", volumeID, instanceID, err)
+				}
+			}
+
+			d.SetId(volumeAttachmentID(deviceName, volumeID, instanceID))
+			return diags
+		} else {
+			input := &ec2.AttachVolumeInput{
+				Device:     aws.String(deviceName),
+				InstanceId: aws.String(instanceID),
+				VolumeId:   aws.String(volumeID),
+			}
+
+			_, err := conn.AttachVolume(ctx, input)
+
+			if err != nil {
+				return sdkdiag.AppendErrorf(diags, "attaching EBS Volume (%s) to EC2 Instance (%s): %s", volumeID, instanceID, err)
+			}
+
+			if _, err := waitVolumeAttachmentCreated(ctx, conn, volumeID, instanceID, deviceName, d.Timeout(schema.TimeoutCreate)); err != nil {
+				return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) Attachment (%s) create: %s", volumeID, instanceID, err)
+			}
+
+			d.SetId(volumeAttachmentID(deviceName, volumeID, instanceID))
+			return append(diags, resourceVolumeAttachmentRead(ctx, d, meta)...)
 		}
 	} else if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s) Attachment (%s): %s", volumeID, instanceID, err)
-	}
-
-	if _, err := waitVolumeAttachmentCreated(ctx, conn, volumeID, instanceID, deviceName, d.Timeout(schema.TimeoutCreate)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) Attachment (%s) create: %s", volumeID, instanceID, err)
 	}
 
 	d.SetId(volumeAttachmentID(deviceName, volumeID, instanceID))
@@ -324,6 +359,47 @@ func findVolumeAttachment(ctx context.Context, conn *ec2.Client, volumeID, insta
 		}
 
 		if aws.ToString(v.Device) == deviceName && aws.ToString(v.InstanceId) == instanceID {
+			return &v, nil
+		}
+	}
+
+	return nil, &retry.NotFoundError{}
+}
+
+func findDatafyVolumeAttachment(ctx context.Context, conn *ec2.Client, volumeID, instanceID string) (*awstypes.VolumeAttachment, error) {
+	input := &ec2.DescribeVolumesInput{
+		Filters: newAttributeFilterList(map[string]string{
+			"attachment.instance-id": instanceID,
+		}),
+		VolumeIds: []string{volumeID},
+	}
+
+	output, err := findEBSVolume(ctx, conn, input)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if state := output.State; state == awstypes.VolumeStateAvailable || state == awstypes.VolumeStateDeleted {
+		return nil, &retry.NotFoundError{
+			Message:     string(state),
+			LastRequest: input,
+		}
+	}
+
+	// Eventual consistency check.
+	if aws.ToString(output.VolumeId) != volumeID {
+		return nil, &retry.NotFoundError{
+			LastRequest: input,
+		}
+	}
+
+	for _, v := range output.Attachments {
+		if v.State == awstypes.VolumeAttachmentStateDetached {
+			continue
+		}
+
+		if aws.ToString(v.InstanceId) == instanceID {
 			return &v, nil
 		}
 	}
