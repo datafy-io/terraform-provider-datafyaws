@@ -40,6 +40,11 @@ type attachVolumeRequest struct {
 	DeviceName string `json:"deviceName"`
 }
 
+type detachVolumeRequest struct {
+	InstanceId string `json:"instanceId"`
+	Force      bool   `json:"force"`
+}
+
 type Client struct {
 	config Config
 }
@@ -157,6 +162,24 @@ func (c *Client) AttachVolume(instanceId string, volumeId string, deviceName str
 	}
 
 	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/attach", volumeId), request)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+
+	return fmt.Errorf(resp.Status)
+}
+
+func (c *Client) DetachVolume(instanceId string, volumeId string) error {
+	request := detachVolumeRequest{
+		InstanceId: instanceId,
+	}
+
+	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/detach", volumeId), request)
 	if err != nil {
 		return err
 	}
