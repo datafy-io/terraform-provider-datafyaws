@@ -201,10 +201,6 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 			return sdkdiag.AppendErrorf(diags, "creating EBS Volume: %s", err)
 		}
 
-		if !datafySnapshot.ReadyToUse {
-			return sdkdiag.AppendErrorf(diags, "datafy snapshot (%s) is not ready to use", snapshotId)
-		}
-
 		restoredVolume, err := dc.CreateVolumeFromSnapshot(datafySnapshot.DatafySnapshotIds, datafySnapshot.SizeBytes, datafySnapshot.Region,
 			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput),
 			func() map[string]string {
