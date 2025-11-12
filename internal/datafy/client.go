@@ -42,6 +42,10 @@ type detachVolumeRequest struct {
 	Force      bool   `json:"force"`
 }
 
+type errorResponse struct {
+	Message string `json:"message"`
+}
+
 type Client struct {
 	config Config
 }
@@ -50,6 +54,14 @@ func NewDatafyClient(config *Config) *Client {
 	return &Client{
 		config: *config,
 	}
+}
+
+func toError(response *http.Response) error {
+	var errResp errorResponse
+	if err := json.NewDecoder(response.Body).Decode(&errResp); err == nil && errResp.Message != "" {
+		return fmt.Errorf(errResp.Message)
+	}
+	return fmt.Errorf(response.Status)
 }
 
 func (c *Client) sendRequest(method, endpoint string, body any) (*http.Response, error) {
@@ -147,7 +159,7 @@ func (c *Client) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZ
 		return &out, nil
 	}
 
-	return nil, fmt.Errorf(resp.Status)
+	return nil, toError(resp)
 }
 
 func (c *Client) AttachVolume(instanceId string, volumeId string, deviceName string) error {
