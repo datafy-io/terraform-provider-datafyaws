@@ -16,10 +16,7 @@ type tags struct {
 }
 
 type createFromSnapshotsSource struct {
-	SnapshotIds []string `json:"snapshotIds"`
-	VolumeId    string   `json:"volumeId"`
-	GenId       int32    `json:"genId"`
-	Region      string   `json:"region"`
+	DatafySnapshotId string `json:"datafySnapshotId"`
 }
 
 type createFromSnapshotsVolumeProperties struct {
@@ -119,18 +116,16 @@ func (c *Client) GetSnapshot(snapshotId string) (*Snapshot, error) {
 	return nil, fmt.Errorf(resp.Status)
 }
 
-func (c *Client) CreateVolumeFromSnapshot(snapshotIds []string, sizeBytes int64, region string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
+func (c *Client) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
 	tagsList := make([]tags, 0, len(tagz))
 	for k, v := range tagz {
 		tagsList = append(tagsList, tags{Key: k, Value: v})
 	}
 	request := createFromSnapshotsRequest{
 		Source: createFromSnapshotsSource{
-			SnapshotIds: snapshotIds,
-			Region:      region,
+			DatafySnapshotId: datafySnapshotId,
 		},
 		VolumeProperties: createFromSnapshotsVolumeProperties{
-			DiskSize:         sizeBytes,
 			VolumeIops:       iops,
 			VolumeThroughput: throughput,
 			AvailabilityZone: availabilityZone,

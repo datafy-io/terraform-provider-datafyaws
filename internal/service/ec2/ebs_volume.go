@@ -193,15 +193,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 
 	if snapshotId := aws.ToString(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		datafySnapshot, err := dc.GetSnapshot(snapshotId)
-		if err != nil {
-			if datafy.NotFound(err) {
-				return sdkdiag.AppendErrorf(diags, "datafy snapshot (%s) not found", snapshotId)
-			}
-			return sdkdiag.AppendErrorf(diags, "creating EBS Volume: %s", err)
-		}
-
-		restoredVolume, err := dc.CreateVolumeFromSnapshot(datafySnapshot.DatafySnapshotIds, datafySnapshot.SizeBytes, datafySnapshot.Region,
+		restoredVolume, err := dc.CreateVolumeFromSnapshot(snapshotId,
 			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput),
 			func() map[string]string {
 				tags := make(map[string]string)
