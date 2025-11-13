@@ -131,14 +131,13 @@ func resourceVolumeAttachmentCreate(ctx context.Context, d *schema.ResourceData,
 
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		datafyVolume, err := dc.GetVolume(volumeID)
-		if err != nil {
-			if datafy.NotFound(err) {
-				return sdkdiag.AppendErrorf(diags, "datafy volume (%s) not found", volumeID)
-			}
+		// If an error occurs, and it's not a "not found" error, return the error.
+		// If the volume exists and is managed by Datafy, proceed to attach it.
+		// If the error is "not found", the volume hasn't been discovered yet and can't be managed.
+		// When creating a volume from a Datafy snapshot (dsnap-), the volume is immediately marked as managed in the database and should be found.
+		if err != nil && !datafy.NotFound(err) {
 			return sdkdiag.AppendErrorf(diags, "attaching EBS Volume (%s) to EC2 Instance (%s): %s", volumeID, instanceID, err)
-		}
-
-		if datafyVolume.IsManaged {
+		} else if datafyVolume != nil && datafyVolume.IsManaged {
 			err := dc.AttachVolume(instanceID, volumeID, deviceName)
 			if err != nil {
 				return sdkdiag.AppendErrorf(diags, "attaching datafy managed EBS Volume (%s) to EC2 Instance (%s): %s", volumeID, instanceID, err)
