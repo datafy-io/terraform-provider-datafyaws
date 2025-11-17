@@ -1,0 +1,43 @@
+name: pr-build
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+env:
+  GOPRIVATE: github.com/datafy-io
+
+jobs:
+  goreleaser:
+    runs-on: datafy-16-cores
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      # PR builds intentionally validate only compilation (not archives/checksums/signing)
+      # to distinguish from the release workflow which runs the full pipeline.
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: build --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: dist/*
+          retention-days: 7
+

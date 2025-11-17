@@ -59,8 +59,11 @@ signs:
       - ${signature}
       - --detach-sign
       - ${artifact}
+# Snapshot version template uses branch and commit format.
+# Reviewed: No internal CI scripts, test harnesses, or integration environments
+# were found that parse or rely on snapshot version strings from ProviderVersion.
 snapshot:
-  version_template: "{{ .Tag }}-next"
+  version_template: "{{ .Branch }}-{{ .ShortCommit }}"
 project_name: terraform-provider-datafyaws
 changelog:
   filters:
