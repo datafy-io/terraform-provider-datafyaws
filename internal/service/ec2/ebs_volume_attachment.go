@@ -263,7 +263,8 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 		}
 		for _, volume := range dvo.Volumes {
 			if len(volume.Attachments) == 0 {
-				return sdkdiag.AppendErrorf(diags, "can't find device name of datafy volume (%s) for EBS volume (%s) Attachement (%s)", aws.ToString(volume.VolumeId), volumeID, d.Id())
+				// already detached volume should be skipped
+				continue
 			}
 			volumesToDelete[aws.ToString(volume.VolumeId)] = aws.ToString(volume.Attachments[0].Device)
 		}
