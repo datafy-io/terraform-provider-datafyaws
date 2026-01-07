@@ -18,6 +18,7 @@ import (
 	basevalidation "github.com/hashicorp/aws-sdk-go-base/v2/validation"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
@@ -28,6 +29,8 @@ import (
 )
 
 type Config struct {
+	DatafyToken                    string
+	DatafyUrl                      string
 	AccessKey                      string
 	AllowedAccountIds              []string
 	AssumeRole                     []awsbase.AssumeRole
@@ -241,6 +244,16 @@ func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWS
 	client.s3UsePathStyle = c.S3UsePathStyle
 	client.s3USEast1RegionalEndpoint = c.S3USEast1RegionalEndpoint
 	client.stsRegion = c.STSRegion
+
+	if c.DatafyUrl == "" {
+		c.DatafyUrl = datafy.DefaultUrl
+	}
+	if c.DatafyToken == "" {
+		diags = append(diags, errs.NewWarningDiagnostic(
+			"Datafy Token was not found for provider",
+			"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications."))
+	}
+	client.SetDatafyClient(datafy.NewDatafyClient(c.DatafyUrl, c.DatafyToken))
 
 	return client, diags
 }
