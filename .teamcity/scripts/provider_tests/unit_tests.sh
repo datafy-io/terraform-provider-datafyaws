@@ -14,6 +14,7 @@ go test \
     ./internal/conns/... \
     ./internal/create/... \
     ./internal/dns/... \
+    ./internal/datafy/... \
     ./internal/enum/... \
     ./internal/envvar/... \
     ./internal/errs/... \
