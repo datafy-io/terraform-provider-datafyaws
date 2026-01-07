@@ -29,6 +29,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	terraformsdk "github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/provider/sdkv2"
 	"github.com/hashicorp/terraform-provider-aws/names"
@@ -459,6 +460,13 @@ func testEndpointCase(ctx context.Context, t *testing.T, region string, testcase
 	p.TerraformVersion = "1.0.0"
 
 	expectedDiags := testcase.expected.diags
+	expectedDiags = append(
+		expectedDiags,
+		errs.NewWarningDiagnostic(
+			"Datafy Token was not found for provider",
+			"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications.",
+		),
+	)
 	diags := p.Configure(ctx, terraformsdk.NewResourceConfigRaw(config))
 
 	if diff := cmp.Diff(diags, expectedDiags, cmp.Comparer(sdkdiag.Comparer)); diff != "" {
