@@ -212,7 +212,7 @@ jobs:
     runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/cache@v6
+      - uses: actions/cache@v5
         continue-on-error: true
         id: cache-terraform-providers-schema
         timeout-minutes: 2
