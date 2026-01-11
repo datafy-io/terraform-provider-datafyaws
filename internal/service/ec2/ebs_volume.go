@@ -30,6 +30,10 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
+const (
+	restoredFromSnapshotIdTagKey = "datafy:restored-from-snapshot:id"
+)
+
 // @SDKResource("aws_ebs_volume", name="EBS Volume")
 // @Tags(identifierAttribute="id")
 // @Testing(tagsTest=false)
@@ -303,6 +307,13 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 			// volume is now the source volume, and we need to set the "new" values from aws
 			if datafyVolume.ReplacedBy != "" {
 				d.SetId(datafyVolume.ReplacedBy)
+				// check if we have the snapshot id this volume was taken from
+				for _, t := range datafyVolume.Tags {
+					if t.Key != nil && *t.Key == restoredFromSnapshotIdTagKey {
+						d.Set(names.AttrSnapshotID, t.Value)
+					}
+				}
+
 				return append(
 					sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeId),
 					resourceEBSVolumeRead(ctx, d, meta)...,
@@ -336,7 +347,18 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 	d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
 	d.Set("outpost_arn", volume.OutpostArn)
 	d.Set(names.AttrSize, volume.Size)
-	d.Set(names.AttrSnapshotID, volume.SnapshotId)
+
+	// if the volume has a real snapshot id, take it
+	if volume.SnapshotId != nil && *volume.SnapshotId != "" {
+		d.Set(names.AttrSnapshotID, volume.SnapshotId)
+	} else {
+		// otherwise if we got a dsnap from tag, take it
+		dsnapId := d.Get(names.AttrSnapshotID)
+		if dsnapId != nil {
+			d.Set(names.AttrSnapshotID, dsnapId)
+		}
+	}
+
 	d.Set(names.AttrThroughput, volume.Throughput)
 	d.Set(names.AttrType, volume.VolumeType)
 
