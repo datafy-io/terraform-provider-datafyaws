@@ -351,12 +351,6 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 	// if the volume has a real snapshot id, take it
 	if volume.SnapshotId != nil && *volume.SnapshotId != "" {
 		d.Set(names.AttrSnapshotID, volume.SnapshotId)
-	} else {
-		// otherwise if we got a dsnap from tag, take it
-		dsnapId := d.Get(names.AttrSnapshotID)
-		if dsnapId != nil {
-			d.Set(names.AttrSnapshotID, dsnapId)
-		}
 	}
 
 	d.Set(names.AttrThroughput, volume.Throughput)
