@@ -41,11 +41,14 @@ import (
 	"github.com/hashicorp/aws-sdk-go-base/v2/awsv1shim/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 type Config struct {
+	DatafyToken                    string
+	DatafyUrl                      string
 	AccessKey                      string
 	AllowedAccountIds              []string
 	AssumeRole                     *awsbase.AssumeRole
@@ -195,6 +198,17 @@ func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWS
 	client.SetHTTPClient(sess.Config.HTTPClient) // Must be called while client.Session is nil.
 	client.Session = sess
 	client.TerraformVersion = c.TerraformVersion
+
+	if c.DatafyUrl == "" {
+		c.DatafyUrl = datafy.DefaultUrl
+	}
+	if c.DatafyToken == "" {
+		log.Println("[WARN] Datafy Token was not found for provider. See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications.")
+	}
+	client.datafyClient = datafy.NewDatafyClient(&datafy.Config{
+		Token: c.DatafyToken,
+		Url:   c.DatafyUrl,
+	})
 
 	// API clients (generated).
 	c.sdkv1Conns(client, sess)
