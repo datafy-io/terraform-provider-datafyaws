@@ -328,6 +328,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/workmailmessageflow"
 	"github.com/aws/aws-sdk-go/service/workspaces"
 	"github.com/aws/aws-sdk-go/service/workspacesweb"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 )
 
@@ -345,6 +346,8 @@ type AWSClient struct {
 	TerraformVersion        string
 
 	httpClient *http.Client
+
+	datafyClient *datafy.Client
 
 	dsClient        lazyClient[*directoryservice_sdkv2.Client]
 	ec2Client       lazyClient[*ec2_sdkv2.Client]
