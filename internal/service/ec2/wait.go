@@ -1737,6 +1737,25 @@ func WaitVolumeAttachmentCreated(ctx context.Context, conn *ec2.EC2, volumeID, i
 	return nil, err
 }
 
+func WaitDatafyVolumeAttachmentCreated(ctx context.Context, conn *ec2.EC2, volumeID, instanceID string, timeout time.Duration) (*ec2.VolumeAttachment, error) {
+	stateConf := &retry.StateChangeConf{
+		Pending:    []string{ec2.VolumeAttachmentStateAttaching},
+		Target:     []string{ec2.VolumeAttachmentStateAttached},
+		Refresh:    StatusDatafyVolumeAttachmentState(ctx, conn, volumeID, instanceID),
+		Timeout:    timeout,
+		Delay:      10 * time.Second,
+		MinTimeout: 3 * time.Second,
+	}
+
+	outputRaw, err := stateConf.WaitForStateContext(ctx)
+
+	if output, ok := outputRaw.(*ec2.VolumeAttachment); ok {
+		return output, err
+	}
+
+	return nil, err
+}
+
 func WaitVolumeAttachmentDeleted(ctx context.Context, conn *ec2.EC2, volumeID, instanceID, deviceName string, timeout time.Duration) (*ec2.VolumeAttachment, error) {
 	stateConf := &retry.StateChangeConf{
 		Pending:    []string{ec2.VolumeAttachmentStateDetaching},
