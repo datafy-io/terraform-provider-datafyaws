@@ -891,6 +891,22 @@ func StatusVolumeAttachmentState(ctx context.Context, conn *ec2.EC2, volumeID, i
 	}
 }
 
+func StatusDatafyVolumeAttachmentState(ctx context.Context, conn *ec2.EC2, volumeID, instanceID string) retry.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+		output, err := FindDatafyEBSVolumeAttachment(ctx, conn, volumeID, instanceID)
+
+		if tfresource.NotFound(err) {
+			return nil, "", nil
+		}
+
+		if err != nil {
+			return nil, "", err
+		}
+
+		return output, aws.StringValue(output.State), nil
+	}
+}
+
 func StatusVolumeModificationState(ctx context.Context, conn *ec2.EC2, id string) retry.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		output, err := FindVolumeModificationByID(ctx, conn, id)
