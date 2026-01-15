@@ -1,0 +1,71 @@
+name: Datafy Pull Request
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: go build -o terraform-plugin-dir/registry.terraform.io/hashicorp/aws/99.99.99/$(go env GOOS)_$(go env GOARCH)/terraform-provider-aws .
+
+  unit-tests:
+    needs: [ build ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: test
+        run: go test ./internal/datafy ./internal/service/ec2 ./internal/provider
+
+  importlint:
+    name: Import lint
+    needs: [ build ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: cd .ci/tools && go install github.com/pavius/impi/cmd/impi
+      - run: impi --local . --scheme stdThirdPartyLocal ./...
+
+  terraform_providers_schema:
+    name: Terraform providers schema
+    needs: [ build ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@633666f66e0061ca3b725c73b2ec20cd13a8fdd1
+        with:
+          terraform_version: 1.0.6
+          terraform_wrapper: false
+      - name: terraform init
+        run: |
+          # We need a file to initialize the provider
+          echo 'data "aws_partition" "example" {}' > example.tf
+          terraform init -plugin-dir terraform-plugin-dir
+      - name: terraform providers schema
+        run: |
+          mkdir terraform-providers-schema
+          terraform providers schema -json > terraform-providers-schema/schema.json
+
+  markdown-lint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: avto-dev/markdown-lint@v1
+        with:
+          args: '.'
+          ignore: './docs ./website/docs ./CHANGELOG.md ./internal/service/cloudformation/testdata/examplecompany-exampleservice-exampleresource/docs'
