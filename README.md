@@ -1,26 +1,18 @@
-<!-- markdownlint-disable first-line-h1 no-inline-html -->
-<a href="https://terraform.io">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/terraform_logo_dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset=".github/terraform_logo_light.svg">
-    <img src=".github/terraform_logo_light.svg" alt="Terraform logo" title="Terraform" align="right" height="50">
-  </picture>
-</a>
+# Terraform DATAFYAWS Provider
 
-# Terraform AWS Provider
+The source code lives in the release branches, one per `hashicorp/aws` major version:
 
-[![Forums][discuss-badge]][discuss]
+| Branch | Built on |
+|---|---|
+| [`release/6.x`](https://github.com/datafy-io/terraform-provider-datafyaws/tree/release/6.x) | `hashicorp/aws` 6.x |
+| [`release/5.x`](https://github.com/datafy-io/terraform-provider-datafyaws/tree/release/5.x) | `hashicorp/aws` 5.x |
+| [`release/4.x`](https://github.com/datafy-io/terraform-provider-datafyaws/tree/release/4.x) | `hashicorp/aws` 4.x |
 
-[discuss-badge]: https://img.shields.io/badge/discuss-terraform--aws-623CE4.svg?style=flat
-[discuss]: https://discuss.hashicorp.com/c/terraform-providers/tf-aws/
-
-The [AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) enables [Terraform](https://terraform.io) to manage [AWS](https://aws.amazon.com) resources.
-
-- [Contributing guide](https://hashicorp.github.io/terraform-provider-aws/)
-- [Quarterly development roadmap](ROADMAP.md)
-- [FAQ](https://hashicorp.github.io/terraform-provider-aws/faq/)
-- [Tutorials](https://learn.hashicorp.com/collections/terraform/aws-get-started)
-- [discuss.hashicorp.com](https://discuss.hashicorp.com/c/terraform-providers/tf-aws/)
-- [Google Groups](http://groups.google.com/group/terraform-tool)
-
-_**Please note:** We take Terraform's security and our users' trust very seriously. If you believe you have found a security issue in the Terraform AWS Provider, please responsibly disclose it by contacting us at security@hashicorp.com._
+> **Note:** To set up the repository for development, run:
+>
+> ```bash
+> make init
+> ```
+>
+> For details on the branch design, see the wiki:  
+> https://datafyio.atlassian.net/wiki/spaces/Datafy/pages/749010945/terraform-provider-datafyaws+V4+V5+V6
