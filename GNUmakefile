@@ -1,3 +1,4 @@
+include datafy.mk
 SWEEP               ?= us-west-2,us-east-1,us-east-2
 TEST                ?= ./...
 SWEEP_DIR           ?= ./internal/sweep
