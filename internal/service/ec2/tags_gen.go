@@ -4,11 +4,13 @@ package ec2
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/types"
@@ -152,6 +154,30 @@ func SetTagsOut(ctx context.Context, tags any) {
 	}
 }
 
+func UpdateVolumeTags(ctx context.Context, conn ec2iface.EC2API, dc datafy.Client, identifier string, oldTagsMap, newTagsMap any) error {
+	if datafyVolume, err := dc.GetVolume(identifier); err == nil {
+		if datafyVolume.IsManaged {
+			dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(identifier))
+			if err != nil {
+				return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
+			} else if len(dvo.Volumes) == 0 {
+				return fmt.Errorf("can't find datafy volumes of EBS volume (%s)", identifier)
+			}
+
+			for _, vid := range dvo.Volumes {
+				if err := UpdateTags(ctx, conn, aws.StringValue(vid.VolumeId), oldTagsMap, newTagsMap); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	} else if !datafy.NotFound(err) {
+		return err
+	}
+
+	return UpdateTags(ctx, conn, identifier, oldTagsMap, newTagsMap)
+}
+
 // UpdateTags updates ec2 service tags.
 // The identifier is typically the Amazon Resource Name (ARN), although
 // it may also be a different identifier depending on the service.
@@ -195,5 +221,8 @@ func UpdateTags(ctx context.Context, conn ec2iface.EC2API, identifier string, ol
 // UpdateTags updates ec2 service tags.
 // It is called from outside this package.
 func (p *servicePackage) UpdateTags(ctx context.Context, meta any, identifier string, oldTags, newTags any) error {
+	if strings.HasPrefix(identifier, "vol-") {
+		return UpdateVolumeTags(ctx, meta.(*conns.AWSClient).EC2Conn(), meta.(*conns.AWSClient).DatafyClient(), identifier, oldTags, newTags)
+	}
 	return UpdateTags(ctx, meta.(*conns.AWSClient).EC2Conn(), identifier, oldTags, newTags)
 }

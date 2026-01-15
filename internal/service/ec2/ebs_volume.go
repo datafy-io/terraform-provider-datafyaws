@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -16,7 +17,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/slices"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
@@ -45,6 +48,22 @@ func ResourceEBSVolume() *schema.Resource {
 		CustomizeDiff: customdiff.Sequence(
 			resourceEBSVolumeCustomizeDiff,
 			verify.SetTagsDiff,
+			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+				// once the volume is managed, datafy has control on the volume. And ONLY tags can be updated via terraform.
+				changes := slices.Filter(diff.GetChangedKeysPrefix(""), func(s string) bool {
+					return !strings.HasPrefix(s, "tags.")
+				})
+				if len(changes) > 0 {
+					dc := meta.(*conns.AWSClient).DatafyClient()
+					if datafyVolume, datafyErr := dc.GetVolume(diff.Id()); datafyErr == nil {
+						if datafyVolume.IsManaged {
+							return fmt.Errorf("can't modify datafied EBS Volume (%s). Changed keys: (%s)", diff.Id(), strings.Join(changes, ","))
+						}
+					}
+				}
+
+				return nil
+			},
 		),
 
 		Schema: map[string]*schema.Schema{
@@ -167,6 +186,74 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 		input.VolumeType = aws.String(value.(string))
 	}
 
+	if snapshotId := aws.StringValue(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
+		dc := meta.(*conns.AWSClient).DatafyClient()
+		restoredVolume, err := dc.CreateVolumeFromSnapshot(snapshotId,
+			aws.StringValue(input.AvailabilityZone), int32(aws.Int64Value(input.Iops)), int32(aws.Int64Value(input.Throughput)),
+			func() map[string]string {
+				tags := make(map[string]string)
+				for _, ts := range input.TagSpecifications {
+					if aws.StringValue(ts.ResourceType) != ec2.ResourceTypeVolume {
+						continue
+					}
+					for _, t := range ts.Tags {
+						tags[aws.StringValue(t.Key)] = aws.StringValue(t.Value)
+					}
+				}
+				return tags
+			}(),
+		)
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "creating EBS Volume from datafy snapshot (%s): %s", snapshotId, err)
+		}
+		d.SetId(restoredVolume.VolumeId)
+
+		dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(d.Id()))
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
+		} else if len(dvo.Volumes) == 0 {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
+		}
+
+		for _, volume := range dvo.Volumes {
+			datafyVolumeId := aws.StringValue(volume.VolumeId)
+			if _, err := WaitVolumeCreated(ctx, conn, datafyVolumeId, d.Timeout(schema.TimeoutCreate)); err != nil {
+				return sdkdiag.AppendErrorf(diags, "waiting for datafy volume (%s) of EBS Volume (%s) create: %s", datafyVolumeId, d.Id(), err)
+			}
+		}
+
+		volume := dvo.Volumes[0]
+		arn := arn.ARN{
+			Partition: meta.(*conns.AWSClient).Partition,
+			Service:   names.EC2,
+			Region:    meta.(*conns.AWSClient).Region,
+			AccountID: meta.(*conns.AWSClient).AccountID,
+			Resource:  fmt.Sprintf("volume/%s", d.Id()),
+		}
+		d.Set("arn", arn.String())
+		d.Set("availability_zone", volume.AvailabilityZone)
+		d.Set("encrypted", volume.Encrypted)
+		d.Set("iops", volume.Iops)
+		d.Set("kms_key_id", volume.KmsKeyId)
+		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
+		d.Set("outpost_arn", func() *string {
+			if volume.OutpostArn == nil {
+				return nil
+			}
+
+			outputArn := strings.ReplaceAll(*volume.OutpostArn, *volume.VolumeId, d.Id())
+			return &outputArn
+		}())
+		d.Set("size", restoredVolume.VolumeSizeGB)
+		d.Set("snapshot_id", snapshotId)
+		d.Set("throughput", volume.Throughput)
+		d.Set("type", volume.VolumeType)
+
+		SetTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
+
+		return diags
+	}
+
 	output, err := conn.CreateVolumeWithContext(ctx, input)
 
 	if err != nil {
@@ -189,7 +276,43 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 	volume, err := FindEBSVolumeByID(ctx, conn, d.Id())
 
 	if !d.IsNewResource() && tfresource.NotFound(err) {
-		log.Printf("[WARN] EBS Volume %s not found, removing from state", d.Id())
+		volumeId := d.Id()
+
+		// if not found on aws, it may mean we datafied it and deleted the volume
+		dc := meta.(*conns.AWSClient).DatafyClient()
+		if datafyVolume, err := dc.GetVolume(volumeId); err == nil {
+			// if we are managing this volume, just return the state as is after updating the tags
+			if datafyVolume.IsManaged {
+				dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(volumeId))
+				if err != nil {
+					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", volumeId, err)
+				} else if len(dvo.Volumes) == 0 {
+					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", volumeId)
+				}
+
+				SetTagsOut(ctx, datafy.RemoveDatafyTags(dvo.Volumes[0].Tags))
+				return diags
+			}
+
+			// if the volume was replaced (new source due to undatafy), it means the new
+			// volume is now the source volume, and we need to set the "new" values from aws
+			if datafyVolume.ReplacedBy != "" {
+				d.SetId(datafyVolume.ReplacedBy)
+				// check if we have the snapshot id this volume was taken from
+				if dsnapId := datafyVolume.GetRestoredFromSnapshotId(); dsnapId != "" {
+					d.Set("snapshot_id", dsnapId)
+				}
+
+				return append(
+					sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeId),
+					resourceEBSVolumeRead(ctx, d, meta)...,
+				)
+			}
+		} else if !datafy.NotFound(err) {
+			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", volumeId, err)
+		}
+
+		log.Printf("[WARN] EBS Volume %s not found, removing from state", volumeId)
 		d.SetId("")
 		return diags
 	}
@@ -227,6 +350,28 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta i
 	conn := meta.(*conns.AWSClient).EC2Conn()
 
 	if d.HasChangesExcept("tags", "tags_all") {
+		// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
+		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
+		// and give back control to terraform
+		dc := meta.(*conns.AWSClient).DatafyClient()
+		if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
+			if datafyVolume.IsManaged {
+				return sdkdiag.AppendErrorf(diags, "can't modify datafied EBS Volume (%s)", d.Id())
+			}
+			if datafyVolume.ReplacedBy != "" {
+				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, d.Id())
+
+				d.SetId(datafyVolume.ReplacedBy)
+				if diags := resourceEBSVolumeRead(ctx, d, meta); diags.HasError() {
+					return diags
+				}
+
+				return resourceEBSVolumeUpdate(ctx, d, meta)
+			}
+		} else if !datafy.NotFound(err) {
+			return sdkdiag.AppendErrorf(diags, "modifying EBS Volume (%s): %s", d.Id(), err)
+		}
+
 		input := &ec2.ModifyVolumeInput{
 			VolumeId: aws.String(d.Id()),
 		}
@@ -276,6 +421,38 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta i
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Conn()
 
+	volumesIDs := []string{d.Id()}
+
+	// once the volume is managed, datafy has control on the volume, and it can't be deleted via terraform
+	// the call must go via datafy api - that will also create the snapshot if needed.
+	// if it was replaced, set the new id to the state and give back control to terraform
+	dc := meta.(*conns.AWSClient).DatafyClient()
+	if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
+		if datafyVolume.IsManaged {
+			dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(d.Id()))
+			if err != nil {
+				return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
+			} else if len(dvo.Volumes) == 0 {
+				return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
+			}
+
+			if !datafyVolume.HasSource {
+				volumesIDs = make([]string, 0, len(dvo.Volumes))
+			}
+			for _, volume := range dvo.Volumes {
+				volumesIDs = append(volumesIDs, aws.StringValue(volume.VolumeId))
+			}
+		}
+		if datafyVolume.ReplacedBy != "" {
+			diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, d.Id())
+
+			d.SetId(datafyVolume.ReplacedBy)
+			return resourceEBSVolumeDelete(ctx, d, meta)
+		}
+	} else if !datafy.NotFound(err) {
+		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", d.Id(), err)
+	}
+
 	if d.Get("final_snapshot").(bool) {
 		input := &ec2.CreateSnapshotInput{
 			TagSpecifications: tagSpecificationsFromMap(ctx, d.Get("tags_all").(map[string]interface{}), ec2.ResourceTypeSnapshot),
@@ -308,25 +485,27 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta i
 		}
 	}
 
-	log.Printf("[DEBUG] Deleting EBS Volume: %s", d.Id())
-	_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, d.Timeout(schema.TimeoutDelete),
-		func() (interface{}, error) {
-			return conn.DeleteVolumeWithContext(ctx, &ec2.DeleteVolumeInput{
-				VolumeId: aws.String(d.Id()),
-			})
-		},
-		errCodeVolumeInUse)
+	for _, vid := range volumesIDs {
+		log.Printf("[DEBUG] Deleting EBS Volume: %s", d.Id())
+		_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, d.Timeout(schema.TimeoutDelete),
+			func() (interface{}, error) {
+				return conn.DeleteVolumeWithContext(ctx, &ec2.DeleteVolumeInput{
+					VolumeId: aws.String(vid),
+				})
+			},
+			errCodeVolumeInUse)
 
-	if tfawserr.ErrCodeEquals(err, errCodeInvalidVolumeNotFound) {
-		return diags
-	}
+		if tfawserr.ErrCodeEquals(err, errCodeInvalidVolumeNotFound) {
+			return diags
+		}
 
-	if err != nil {
-		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", d.Id(), err)
-	}
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", vid, err)
+		}
 
-	if _, err := WaitVolumeDeleted(ctx, conn, d.Id(), d.Timeout(schema.TimeoutDelete)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) delete: %s", d.Id(), err)
+		if _, err := WaitVolumeDeleted(ctx, conn, vid, d.Timeout(schema.TimeoutDelete)); err != nil {
+			return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) delete: %s", d.Id(), err)
+		}
 	}
 
 	return diags

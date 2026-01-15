@@ -646,7 +646,7 @@ func FindEBSVolumeByID(ctx context.Context, conn *ec2.EC2, id string) (*ec2.Volu
 		return nil, err
 	}
 
-	if state := aws.StringValue(output.State); state == ec2.VolumeStateDeleted {
+	if state := aws.StringValue(output.State); state == ec2.VolumeStateDeleted || state == ec2.VolumeStateDeleting {
 		return nil, &retry.NotFoundError{
 			Message:     state,
 			LastRequest: input,
@@ -698,6 +698,47 @@ func FindEBSVolumeAttachment(ctx context.Context, conn *ec2.EC2, volumeID, insta
 		}
 
 		if aws.StringValue(v.Device) == deviceName && aws.StringValue(v.InstanceId) == instanceID {
+			return v, nil
+		}
+	}
+
+	return nil, &retry.NotFoundError{}
+}
+
+func FindDatafyEBSVolumeAttachment(ctx context.Context, conn *ec2.EC2, volumeID, instanceID string) (*ec2.VolumeAttachment, error) {
+	input := &ec2.DescribeVolumesInput{
+		Filters: BuildAttributeFilterList(map[string]string{
+			"attachment.instance-id": instanceID,
+		}),
+		VolumeIds: aws.StringSlice([]string{volumeID}),
+	}
+
+	output, err := FindEBSVolume(ctx, conn, input)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if state := aws.StringValue(output.State); state == ec2.VolumeStateAvailable || state == ec2.VolumeStateDeleted {
+		return nil, &retry.NotFoundError{
+			Message:     state,
+			LastRequest: input,
+		}
+	}
+
+	// Eventual consistency check.
+	if aws.StringValue(output.VolumeId) != volumeID {
+		return nil, &retry.NotFoundError{
+			LastRequest: input,
+		}
+	}
+
+	for _, v := range output.Attachments {
+		if aws.StringValue(v.State) == ec2.VolumeAttachmentStateDetached {
+			continue
+		}
+
+		if aws.StringValue(v.InstanceId) == instanceID {
 			return v, nil
 		}
 	}
