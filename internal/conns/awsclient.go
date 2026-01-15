@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/service/apigatewayv2"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 )
 
 // PartitionHostname returns a hostname with the provider domain suffix for the partition
@@ -38,6 +39,14 @@ func (client *AWSClient) SetHTTPClient(httpClient *http.Client) {
 // HTTPClient returns the http.Client used for AWS API calls.
 func (client *AWSClient) HTTPClient() *http.Client {
 	return client.httpClient
+}
+
+func (client *AWSClient) DatafyClient() datafy.Client {
+	return client.datafyClient
+}
+
+func (client *AWSClient) SetDatafyClient(datafyClient datafy.Client) {
+	client.datafyClient = datafyClient
 }
 
 // APIGatewayInvokeURL returns the Amazon API Gateway (REST APIs) invoke URL for the configured AWS Region.
