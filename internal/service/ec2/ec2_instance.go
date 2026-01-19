@@ -34,6 +34,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/backoff"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
@@ -1544,6 +1545,7 @@ func resourceInstanceRead(ctx context.Context, d *schema.ResourceData, meta any)
 func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
+	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 
 	if d.HasChange("volume_tags") && !d.IsNewResource() {
 		volIDs, err := getInstanceVolIDs(ctx, conn, d.Id())
@@ -1554,7 +1556,7 @@ func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta an
 		o, n := d.GetChange("volume_tags")
 
 		for _, volID := range volIDs {
-			if err := updateTags(ctx, conn, volID, o, n); err != nil {
+			if err := updateVolumeTags(ctx, conn, dc, volID, o, n); err != nil {
 				return sdkdiag.AppendErrorf(diags, "updating volume_tags (%s): %s", volID, err)
 			}
 		}
@@ -2117,7 +2119,7 @@ func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta an
 		if d.HasChange("root_block_device.0.tags") {
 			o, n := d.GetChange("root_block_device.0.tags")
 
-			if err := updateTags(ctx, conn, volID, o, n); err != nil {
+			if err := updateVolumeTags(ctx, conn, dc, volID, o, n); err != nil {
 				return sdkdiag.AppendErrorf(diags, "updating tags for volume (%s): %s", volID, err)
 			}
 		}
@@ -2125,7 +2127,7 @@ func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta an
 		if d.HasChange("root_block_device.0.tags_all") && !d.HasChange("root_block_device.0.tags") {
 			o, n := d.GetChange("root_block_device.0.tags_all")
 
-			if err := updateTags(ctx, conn, volID, o, n); err != nil {
+			if err := updateVolumeTags(ctx, conn, dc, volID, o, n); err != nil {
 				return sdkdiag.AppendErrorf(diags, "updating tags for volume (%s): %s", volID, err)
 			}
 		}
@@ -2397,11 +2399,22 @@ func readBlockDevicesFromInstance(ctx context.Context, d *schema.ResourceData, m
 	defaultTagsConfig := meta.(*conns.AWSClient).DefaultTagsConfig(ctx)
 	ignoreTagsConfig := meta.(*conns.AWSClient).IgnoreTagsConfig(ctx)
 
+	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 	for _, vol := range volResp.Volumes {
 		instanceBd := instanceBlockDevices[aws.ToString(vol.VolumeId)]
 		bd := make(map[string]any)
 
-		bd["volume_id"] = aws.ToString(vol.VolumeId)
+		volumeId := aws.ToString(vol.VolumeId)
+		bd["volume_id"] = volumeId
+
+		// filter out datafy and managed volumes (managed will be added below from state)
+		if datafyVol, err := dc.GetVolume(volumeId); err == nil {
+			if datafyVol.IsDatafied || datafyVol.IsManaged {
+				continue
+			}
+		} else if !datafy.NotFound(err) {
+			return blockDevices, err
+		}
 
 		if instanceBd.Ebs != nil && instanceBd.Ebs.DeleteOnTermination != nil {
 			bd[names.AttrDeleteOnTermination] = aws.ToBool(instanceBd.Ebs.DeleteOnTermination)
@@ -2470,6 +2483,38 @@ func readBlockDevicesFromInstance(ctx context.Context, d *schema.ResourceData, m
 			blockDevices["ebs"] = append(blockDevices["ebs"].([]map[string]any), bd)
 		}
 	}
+
+	// source volume that were managed may (or not) be missing, need to add them back from the state
+	if v, ok := d.GetOk("ebs_block_device"); ok {
+		for _, v := range v.(*schema.Set).List() {
+			bd := v.(map[string]interface{})
+			// the volumeId will be empty if its the first creation of the resource
+			if volumeId, ok := bd["volume_id"].(string); ok && volumeId != "" {
+				if !slices.ContainsFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
+					return m["volume_id"].(string) == bd["volume_id"].(string)
+				}) {
+					// if not found in the blockDevices["ebs"], it means the volume is managed (and may also have been removed)
+					// or was replaced (new volume due to undatafy), both cases we need to add them back from the state
+					if datafyVol, err := dc.GetVolume(bd["volume_id"].(string)); err == nil {
+						if datafyVol.IsManaged || datafyVol.ReplacedBy != "" {
+							if datafyVol.ReplacedBy != "" {
+								bd["volume_id"] = datafyVol.ReplacedBy
+								blockDevices["ebs"] = slices.DeleteFunc(blockDevices["ebs"].([]map[string]interface{}), func(m map[string]interface{}) bool {
+									return m["volume_id"].(string) == datafyVol.ReplacedBy
+								})
+							}
+							blockDevices["ebs"] = append(blockDevices["ebs"].([]map[string]interface{}), bd)
+						}
+					} else if datafy.NotFound(err) {
+						continue
+					} else {
+						return blockDevices, err
+					}
+				}
+			}
+		}
+	}
+
 	// If we determine the root device is the only block device mapping
 	// in the instance (including ephemerals) after returning from this function,
 	// we'll need to set the ebs_block_device as a clone of the root device
