@@ -591,6 +591,22 @@ func statusVolumeAttachment(ctx context.Context, conn *ec2.Client, volumeID, ins
 	}
 }
 
+func statusDatafyVolumeAttachment(ctx context.Context, conn *ec2.Client, volumeID, instanceID string) sdkretry.StateRefreshFunc {
+	return func() (any, string, error) {
+		output, err := findDatafyVolumeAttachment(ctx, conn, volumeID, instanceID)
+
+		if retry.NotFound(err) {
+			return nil, "", nil
+		}
+
+		if err != nil {
+			return nil, "", err
+		}
+
+		return output, string(output.State), nil
+	}
+}
+
 func statusVolumeAttachmentInstanceState(ctx context.Context, conn *ec2.Client, id string) sdkretry.StateRefreshFunc {
 	return func() (any, string, error) {
 		// Don't call FindInstanceByID as it maps useful status codes to NotFoundError.
