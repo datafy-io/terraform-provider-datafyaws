@@ -2,11 +2,15 @@ name: Datafy Pull Request
 
 on:
   pull_request:
-  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -17,7 +21,7 @@ jobs:
 
   unit-tests:
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
         with:
@@ -27,25 +31,37 @@ jobs:
           go-version-file: go.mod
       - name: test
         run: go test ./internal/datafy ./internal/service/ec2 ./internal/provider
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          role-to-assume: ${{ secrets.DEVELOPMENT_AWS_ROLE_ARN }}
+      - name: testacc
+        run: make testacc TESTS=TestAccEC2EBSVolume PKG=ec2
 
   importlint:
     name: Import lint
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: ./.ci/tools/go.mod
       - run: cd .ci/tools && go install github.com/pavius/impi/cmd/impi
       - run: impi --local . --scheme stdThirdPartyLocal ./...
 
   terraform_providers_schema:
     name: Terraform providers schema
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: make go-build
       - uses: hashicorp/setup-terraform@633666f66e0061ca3b725c73b2ec20cd13a8fdd1
         with:
           terraform_version: 1.8.3
@@ -62,13 +78,13 @@ jobs:
 
   markdown-lint:
     name: Markdown lint
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: avto-dev/markdown-lint@v1
         with:
-          args: '.'
-          ignore: './docs ./website/docs ./CHANGELOG.md ./internal/service/cloudformation/testdata/examplecompany-exampleservice-exampleresource/docs'
+          args: "."
+          ignore: "./docs ./website/docs ./CHANGELOG.md ./internal/service/cloudformation/test-fixtures/examplecompany-exampleservice-exampleresource/docs"
 
   misspell:
     name: Misspell
