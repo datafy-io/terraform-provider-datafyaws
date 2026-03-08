@@ -1,0 +1,43 @@
+name: 'Setup Local Terraform Provider'
+description: 'Sets up local Terraform provider from Docker image'
+inputs:
+  provider-image:
+    description: 'Provider Docker image URI'
+    required: true
+  provider-name:
+    description: 'Provider name'
+    required: true
+    default: 'datafyaws'
+  aws-region:
+    description: 'AWS region'
+    required: true
+    default: 'us-east-1'
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.AWS_ROLE_ARN }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Pull provider image
+      shell: bash
+      run: docker pull ${{ inputs.provider-image }}
+
+    - name: Extract provider binary
+      shell: bash
+      run: |
+        docker create --name temp-provider ${{ inputs.provider-image }}
+        docker cp temp-provider:/root/terraform-provider-datafyaws ./terraform-provider-${{ inputs.provider-name }}
+        docker rm temp-provider
+        chmod +x ./terraform-provider-${{ inputs.provider-name }}
+
+    - name: Setup provider directory
+      shell: bash
+      run: |
+        mkdir -p ~/.terraform.d/plugins/local/providers/${{ inputs.provider-name }}/1.0.0/linux_amd64/
+        mv ./terraform-provider-${{ inputs.provider-name }} ~/.terraform.d/plugins/local/providers/${{ inputs.provider-name }}/1.0.0/linux_amd64/

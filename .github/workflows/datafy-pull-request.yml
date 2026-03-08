@@ -4,6 +4,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -80,3 +85,67 @@ jobs:
           go-version-file: ./.ci/tools/go.mod
       - run: cd .ci/tools && go install github.com/client9/misspell/cmd/misspell
       - run: make go-misspell
+
+  build-and-push-docker:
+    name: Build and Push Docker Image
+    needs: [ build, unit-tests, terraform_providers_schema ]
+    runs-on: ubuntu-latest
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      ECR_REPOSITORY: terraform-provider-datafyaws
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        run: make go-build
+
+      - name: Copy binary for Docker build
+        run: |
+          os_arch=$(go env GOOS)_$(go env GOARCH)
+          cp "terraform-plugin-dir/registry.terraform.io/hashicorp/aws/99.99.99/$os_arch/terraform-provider-aws" ./terraform-provider-datafyaws
+          chmod +x ./terraform-provider-datafyaws
+
+      - name: Build and push to ECR
+        id: build-provider
+        uses: ./.github/actions/build-provider
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          ecr-repository: ${{ env.ECR_REPOSITORY }}
+          image-tag: ${{ github.event.pull_request.head.sha }}
+
+      - name: Comment PR with image details
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const imageUri = '${{ steps.build-provider.outputs.image-uri }}';
+            const commitHash = '${{ github.event.pull_request.head.sha }}';
+            
+            const comment = `## 🐳 Docker Image Built Successfully
+            
+            **Commit Hash:** \`${commitHash}\`
+            **Image URI:** \`${imageUri}\`
+            
+            The Terraform provider has been built and pushed to ECR. You can use this image for testing by referencing the commit hash: \`${commitHash}\`
+            
+            ### Usage Example:
+            \`\`\`bash
+            # Pull the image
+            docker pull ${imageUri}
+            
+            # Use in your Terraform configuration
+            # (Setup instructions will depend on your specific testing workflow)
+            \`\`\``;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
