@@ -1,13 +1,6 @@
-name: 'Build Terraform Provider'
+name: 'Build Terraform Provider Docker Image'
 description: 'Builds and pushes Terraform provider Docker image to ECR'
 inputs:
-  aws-region:
-    description: 'AWS region'
-    required: true
-    default: 'us-east-1'
-  ecr-repository:
-    description: 'ECR repository name'
-    required: true
   image-tag:
     description: 'Docker image tag'
     required: true
@@ -21,22 +14,18 @@ runs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ env.AWS_ROLE_ARN }}
-        aws-region: ${{ inputs.aws-region }}
-
+        aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+        role-to-assume: ${{ secrets.MANAGEMENT_AWS_ROLE_ARN }}
     - name: Login to Amazon ECR
-      id: login-ecr
+      id: ecr
       uses: aws-actions/amazon-ecr-login@v2
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
     - name: Build and push
       id: build
       shell: bash
       run: |
-        ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
-        IMAGE_URI=$ECR_REGISTRY/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}
+        IMAGE_URI=${{ steps.ecr.outputs.registry }}/datafy-io/terraform-provider-datafyaws:${{ inputs.image-tag }}
         
         echo "Building Docker image: $IMAGE_URI"
         docker build -t $IMAGE_URI .

@@ -96,14 +96,11 @@ jobs:
       AWS_REGION: us-east-1
     steps:
       - uses: actions/checkout@v6
-
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
       - name: Build binary
         run: make go-build
-
       - name: Copy binary for Docker build
         run: |
           os_arch=$(go env GOOS)_$(go env GOARCH)
@@ -114,8 +111,6 @@ jobs:
         id: build-provider
         uses: ./.github/actions/build-provider
         with:
-          aws-region: ${{ env.AWS_REGION }}
-          ecr-repository: ${{ env.ECR_REPOSITORY }}
           image-tag: ${{ github.event.pull_request.head.sha }}
 
       - name: Comment PR with image details
