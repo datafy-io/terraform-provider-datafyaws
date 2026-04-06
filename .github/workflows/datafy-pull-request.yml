@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -21,7 +21,7 @@ jobs:
 
   unit-tests:
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
         with:
@@ -35,7 +35,7 @@ jobs:
   importlint:
     name: Import lint
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -47,7 +47,7 @@ jobs:
   terraform_providers_schema:
     name: Terraform providers schema
     needs: [ build ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: hashicorp/setup-terraform@633666f66e0061ca3b725c73b2ec20cd13a8fdd1
@@ -66,7 +66,7 @@ jobs:
 
   markdown-lint:
     name: Markdown lint
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: avto-dev/markdown-lint@v1
@@ -88,7 +88,7 @@ jobs:
   build-and-push-docker:
     name: Build and Push Docker Image
     needs: [ build, unit-tests, terraform_providers_schema ]
-    runs-on: ubuntu-latest
+    runs-on: datafy-16-cores
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
