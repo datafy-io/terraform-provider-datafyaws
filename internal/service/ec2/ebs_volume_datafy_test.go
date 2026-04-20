@@ -90,7 +90,7 @@ func TestAccDatafyEC2EBSVolume_replacedBy(t *testing.T) {
 	})
 }
 
-func TestAccDatafyEC2EBSVolume_blockModify(t *testing.T) {
+func TestAccDatafyEC2EBSVolume_blockModifyType(t *testing.T) {
 	ctx := acctest.Context(t)
 	var v ec2.Volume
 	var dv []*ec2.Volume
@@ -111,7 +111,7 @@ func TestAccDatafyEC2EBSVolume_blockModify(t *testing.T) {
 			},
 			{
 				PreConfig: createDatafyVolume(ctx, &v),
-				Config:    testAccEBSVolumeConfig_updateSize(rName),
+				Config:    testAccEBSVolumeConfig_updateType(rName),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 				),
@@ -143,6 +143,40 @@ func TestAccDatafyEC2EBSVolume_modifyOnlyTags(t *testing.T) {
 			{
 				PreConfig: createDatafyVolume(ctx, &v),
 				Config:    testAccEBSVolumeConfig_tags1("Name", rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
+func TestAccDatafyEC2EBSVolume_modifyOnlySize(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v ec2.Volume
+	var dv []*ec2.Volume
+	resourceName := "aws_ebs_volume.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeConfig_updateSize(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolume(ctx, &v),
+				Config:    testAccEBSVolumeConfig_sizeTypeIOPSThroughput(rName, "8", "gp2", "3000", "125"),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
@@ -223,6 +257,13 @@ func createDatafyVolume(ctx context.Context, v *ec2.Volume) func() {
 			}
 
 			acctest.DatafyClient.SetVolume(aws.StringValue(v.VolumeId), &datafy.Volume{
+				Volume: &types.Volume{
+					Size:       aws.Int32(int32(aws.Int64Value(v.Size))),
+					Iops:       aws.Int32(int32(aws.Int64Value(v.Iops))),
+					Throughput: aws.Int32(int32(aws.Int64Value(v.Throughput))),
+					VolumeType: types.VolumeType(aws.StringValue(v.VolumeType)),
+					Tags:       slices.ApplyToAll(v.Tags, func(t *ec2.Tag) types.Tag { return types.Tag{Key: t.Key, Value: t.Value} }),
+				},
 				HasSource:  false,
 				IsManaged:  true,
 				IsDatafied: true,
@@ -298,7 +339,13 @@ func createDatafyReplacedByVolume(ctx context.Context, v *ec2.Volume, replacedBy
 			*replacedBy = *v.VolumeId
 
 			acctest.DatafyClient.SetVolume(oldVolumeId, &datafy.Volume{
-				Volume:     &types.Volume{},
+				Volume: &types.Volume{
+					Size:       aws.Int32(int32(aws.Int64Value(v.Size))),
+					Iops:       aws.Int32(int32(aws.Int64Value(v.Iops))),
+					Throughput: aws.Int32(int32(aws.Int64Value(v.Throughput))),
+					VolumeType: types.VolumeType(aws.StringValue(v.VolumeType)),
+					Tags:       slices.ApplyToAll(v.Tags, func(t *ec2.Tag) types.Tag { return types.Tag{Key: t.Key, Value: t.Value} }),
+				},
 				HasSource:  false,
 				IsManaged:  false,
 				IsDatafied: false,

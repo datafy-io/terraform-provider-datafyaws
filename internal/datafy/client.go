@@ -17,6 +17,7 @@ type Client interface {
 	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
+	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error
 }
 
 type tags struct {
@@ -49,6 +50,12 @@ type attachVolumeRequest struct {
 type detachVolumeRequest struct {
 	InstanceId string `json:"instanceId"`
 	Force      bool   `json:"force"`
+}
+
+type modifyVolumeRequest struct {
+	VolumeSizeGb     *int32 `json:"volumeSizeGb,omitempty"`
+	VolumeIops       *int32 `json:"volumeIops,omitempty"`
+	VolumeThroughput *int32 `json:"volumeThroughput,omitempty"`
 }
 
 type errorResponse struct {
@@ -190,4 +197,24 @@ func (c *ClientImpl) DetachVolume(instanceId string, volumeId string) error {
 	}
 
 	return fmt.Errorf(resp.Status)
+}
+
+func (c *ClientImpl) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+	request := modifyVolumeRequest{
+		VolumeSizeGb:     sizeGb,
+		VolumeIops:       iops,
+		VolumeThroughput: throughput,
+	}
+
+	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/modify", volumeId), request)
+	if err != nil {
+		return err
+	}
+	defer drain(resp)
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
+		return nil
+	}
+
+	return toError(resp)
 }
