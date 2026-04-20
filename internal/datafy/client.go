@@ -42,6 +42,12 @@ type detachVolumeRequest struct {
 	Force      bool   `json:"force"`
 }
 
+type modifyVolumeRequest struct {
+	VolumeSizeGb     *int32 `json:"volumeSizeGb,omitempty"`
+	VolumeIops       *int32 `json:"volumeIops,omitempty"`
+	VolumeThroughput *int32 `json:"volumeThroughput,omitempty"`
+}
+
 type errorResponse struct {
 	Message string `json:"message"`
 }
@@ -197,4 +203,25 @@ func (c *Client) DetachVolume(instanceId string, volumeId string) error {
 	}
 
 	return fmt.Errorf(resp.Status)
+}
+
+func (c *Client) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+	// expandFilesystem is true only when changing the size: the OS filesystem needs to expand to use the new space.
+	request := modifyVolumeRequest{
+		VolumeSizeGb:     sizeGb,
+		VolumeIops:       iops,
+		VolumeThroughput: throughput,
+	}
+
+	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/modify", volumeId), request)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
+		return nil
+	}
+
+	return toError(resp)
 }
