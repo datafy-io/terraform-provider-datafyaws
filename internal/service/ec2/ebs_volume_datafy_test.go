@@ -89,7 +89,7 @@ func TestAccDatafyEC2EBSVolume_replacedBy(t *testing.T) {
 	})
 }
 
-func TestAccDatafyEC2EBSVolume_blockModify(t *testing.T) {
+func TestAccDatafyEC2EBSVolume_blockModifyType(t *testing.T) {
 	ctx := acctest.Context(t)
 	var v awstypes.Volume
 	var dv []awstypes.Volume
@@ -110,7 +110,7 @@ func TestAccDatafyEC2EBSVolume_blockModify(t *testing.T) {
 			},
 			{
 				PreConfig: createDatafyVolume(ctx, &v),
-				Config:    testAccEBSVolumeConfig_updateSize(rName),
+				Config:    testAccEBSVolumeConfig_updateType(rName),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 				),
@@ -142,6 +142,40 @@ func TestAccDatafyEC2EBSVolume_modifyOnlyTags(t *testing.T) {
 			{
 				PreConfig: createDatafyVolume(ctx, &v),
 				Config:    testAccEBSVolumeConfig_tags1("Name", rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
+func TestAccDatafyEC2EBSVolume_modifyOnlySize(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v awstypes.Volume
+	var dv []awstypes.Volume
+	resourceName := "aws_ebs_volume.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeConfig_updateSize(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolume(ctx, &v),
+				Config:    testAccEBSVolumeConfig_sizeTypeIOPSThroughput(rName, "8", "gp2", "3000", "125"),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),

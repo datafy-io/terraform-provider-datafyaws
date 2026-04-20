@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/id"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
@@ -28,6 +30,10 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
+)
+
+var (
+	datafiedModifiableAttrs = []string{names.AttrSize, names.AttrIOPS, names.AttrThroughput}
 )
 
 // @SDKResource("aws_ebs_volume", name="EBS Volume")
@@ -53,9 +59,8 @@ func resourceEBSVolume() *schema.Resource {
 		CustomizeDiff: customdiff.Sequence(
 			resourceEBSVolumeCustomizeDiff,
 			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
-				// once the volume is managed, datafy has control on the volume. And ONLY tags can be updated via terraform.
 				changes := slices.DeleteFunc(diff.GetChangedKeysPrefix(""), func(s string) bool {
-					return strings.HasPrefix(s, "tags.")
+					return strings.HasPrefix(s, "tags.") || slices.Contains(datafiedModifiableAttrs, s)
 				})
 				if len(changes) > 0 {
 					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
@@ -65,7 +70,6 @@ func resourceEBSVolume() *schema.Resource {
 						}
 					}
 				}
-
 				return nil
 			},
 		),
@@ -298,6 +302,10 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", volumeId)
 				}
 
+				d.Set(names.AttrSize, datafyVolume.Size)
+				d.Set(names.AttrIOPS, datafyVolume.Iops)
+				d.Set(names.AttrThroughput, datafyVolume.Throughput)
+
 				setTagsOut(ctx, datafy.RemoveDatafyTags(dvo.Volumes[0].Tags))
 				return diags
 			}
@@ -365,7 +373,39 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
 			if datafyVolume.IsManaged {
-				return sdkdiag.AppendErrorf(diags, "can't modify datafied EBS Volume (%s)", d.Id())
+				var sizeGb, iops, throughput *int32
+				var cmpAttr, oldValue, newValue string
+				if d.HasChange(names.AttrIOPS) {
+					oldVal, newVal := d.GetChange(names.AttrIOPS)
+					oldValue = strconv.Itoa(oldVal.(int))
+					newValue = strconv.Itoa(newVal.(int))
+					iops = aws.Int32(int32(newVal.(int)))
+					cmpAttr = names.AttrIOPS
+				}
+				if d.HasChange(names.AttrThroughput) {
+					oldVal, newVal := d.GetChange(names.AttrThroughput)
+					oldValue = strconv.Itoa(oldVal.(int))
+					newValue = strconv.Itoa(newVal.(int))
+					throughput = aws.Int32(int32(newVal.(int)))
+					cmpAttr = names.AttrThroughput
+				}
+				if d.HasChange(names.AttrSize) {
+					oldVal, newVal := d.GetChange(names.AttrSize)
+					oldValue = strconv.Itoa(oldVal.(int))
+					newValue = strconv.Itoa(newVal.(int))
+					sizeGb = aws.Int32(int32(newVal.(int)))
+					cmpAttr = names.AttrSize
+				}
+				if sizeGb == nil && iops == nil && throughput == nil {
+					return append(diags, resourceEBSVolumeRead(ctx, d, meta)...)
+				}
+				if err := dc.ModifyVolume(d.Id(), sizeGb, iops, throughput); err != nil {
+					return sdkdiag.AppendErrorf(diags, "modifying datafied EBS Volume (%s): %s", d.Id(), err)
+				}
+				if err := waitDatafyVolumeModified(ctx, dc, d.Id(), cmpAttr, oldValue, newValue, d.Timeout(schema.TimeoutUpdate)); err != nil {
+					return sdkdiag.AppendErrorf(diags, "waiting for datafied EBS Volume (%s) modification: %s", d.Id(), err)
+				}
+				return append(diags, resourceEBSVolumeRead(ctx, d, meta)...)
 			}
 			if datafyVolume.ReplacedBy != "" {
 				diags = sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, d.Id())
@@ -519,6 +559,43 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta a
 	}
 
 	return diags
+}
+
+// Overridable in tests to avoid 30s/10s waits.
+var (
+	datafyVolumeModifiedDelay      = 10 * time.Second
+	datafyVolumeModifiedMinTimeout = 10 * time.Second
+)
+
+func waitDatafyVolumeModified(ctx context.Context, dc datafy.Client, id string, attr string, oldValue string, newValue string, timeout time.Duration) error {
+	stateConf := &retry.StateChangeConf{
+		Pending: []string{oldValue},
+		Target:  []string{newValue},
+		Refresh: func() (any, string, error) {
+			if attr != names.AttrSize && attr != names.AttrIOPS && attr != names.AttrThroughput {
+				return nil, "", fmt.Errorf("unsupported attribute: %s", attr)
+			}
+			volume, err := dc.GetVolume(id)
+			if err != nil {
+				return nil, "", err
+			}
+			switch attr {
+			case names.AttrSize:
+				return volume, strconv.Itoa(int(*volume.Size)), nil
+			case names.AttrIOPS:
+				return volume, strconv.Itoa(int(*volume.Iops)), nil
+			case names.AttrThroughput:
+				return volume, strconv.Itoa(int(*volume.Throughput)), nil
+			default:
+				return nil, "", fmt.Errorf("unsupported attribute: %s", attr)
+			}
+		},
+		Timeout:    timeout,
+		Delay:      datafyVolumeModifiedDelay,
+		MinTimeout: datafyVolumeModifiedMinTimeout,
+	}
+	_, err := stateConf.WaitForStateContext(ctx)
+	return err
 }
 
 func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff, meta any) error {
