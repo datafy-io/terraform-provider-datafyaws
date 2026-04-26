@@ -374,6 +374,7 @@ gen: prereq-go gen-raw ## Run all Go generators (with Go version check)
 
 gen-raw: ## Run all Go generators
 	@echo "make: Running Go generators..."
+	@which stringer > /dev/null 2>&1 || $(GO_VER) install golang.org/x/tools/cmd/stringer@latest
 	$(GO_VER) generate ./...
 	# Generate service package lists last as they may depend on output of earlier generators.
 	$(GO_VER) generate ./internal/provider/...
