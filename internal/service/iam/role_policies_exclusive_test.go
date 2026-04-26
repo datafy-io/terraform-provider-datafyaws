@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package iam_test
@@ -7,14 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/iam/types"
-	sdkacctest "github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-provider-aws/internal/acctest"
-	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	tfiam "github.com/hashicorp/terraform-provider-aws/internal/service/iam"
@@ -26,25 +25,25 @@ func TestAccIAMRolePoliciesExclusive_basic(t *testing.T) {
 
 	var role types.Role
 	var rolePolicy string
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_iam_role_policies_exclusive.test"
 	roleResourceName := "aws_iam_role.test"
 	rolePolicyResourceName := "aws_iam_role_policy.test"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck: func() {
 			acctest.PreCheck(ctx, t)
 		},
 		ErrorCheck:               acctest.ErrorCheck(t, names.IAMServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx),
+		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePolicyExists(ctx, rolePolicyResourceName, &rolePolicy),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePolicyExists(ctx, t, rolePolicyResourceName, &rolePolicy),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					resource.TestCheckResourceAttrPair(resourceName, "role_name", roleResourceName, names.AttrName),
 					resource.TestCheckTypeSetElemAttrPair(resourceName, "policy_names.*", rolePolicyResourceName, names.AttrName),
 				),
@@ -52,7 +51,7 @@ func TestAccIAMRolePoliciesExclusive_basic(t *testing.T) {
 			{
 				ResourceName:                         resourceName,
 				ImportState:                          true,
-				ImportStateIdFunc:                    testAccRolePoliciesExclusiveImportStateIdFunc(resourceName),
+				ImportStateIdFunc:                    acctest.AttrImportStateIdFunc(resourceName, "role_name"),
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "role_name",
 			},
@@ -65,28 +64,28 @@ func TestAccIAMRolePoliciesExclusive_disappears_Role(t *testing.T) {
 
 	var role types.Role
 	var rolePolicy string
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_iam_role_policies_exclusive.test"
 	roleResourceName := "aws_iam_role.test"
 	rolePolicyResourceName := "aws_iam_role_policy.test"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck: func() {
 			acctest.PreCheck(ctx, t)
 		},
 		ErrorCheck:               acctest.ErrorCheck(t, names.IAMServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx),
+		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePolicyExists(ctx, rolePolicyResourceName, &rolePolicy),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePolicyExists(ctx, t, rolePolicyResourceName, &rolePolicy),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					// Inline policy must be deleted before the role can be
-					acctest.CheckResourceDisappears(ctx, acctest.Provider, tfiam.ResourceRolePolicy(), rolePolicyResourceName),
-					acctest.CheckResourceDisappears(ctx, acctest.Provider, tfiam.ResourceRole(), roleResourceName),
+					acctest.CheckSDKResourceDisappears(ctx, t, tfiam.ResourceRolePolicy(), rolePolicyResourceName),
+					acctest.CheckSDKResourceDisappears(ctx, t, tfiam.ResourceRole(), roleResourceName),
 				),
 				ExpectNonEmptyPlan: true,
 			},
@@ -99,27 +98,27 @@ func TestAccIAMRolePoliciesExclusive_multiple(t *testing.T) {
 
 	var role types.Role
 	var rolePolicy string
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_iam_role_policies_exclusive.test"
 	roleResourceName := "aws_iam_role.test"
 	rolePolicyResourceName := "aws_iam_role_policy.test"
 	rolePolicyResourceName2 := "aws_iam_role_policy.test2"
 	rolePolicyResourceName3 := "aws_iam_role_policy.test3"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck: func() {
 			acctest.PreCheck(ctx, t)
 		},
 		ErrorCheck:               acctest.ErrorCheck(t, names.IAMServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx),
+		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRolePoliciesExclusiveConfig_multiple(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePolicyExists(ctx, rolePolicyResourceName, &rolePolicy),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePolicyExists(ctx, t, rolePolicyResourceName, &rolePolicy),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					resource.TestCheckResourceAttrPair(resourceName, "role_name", roleResourceName, names.AttrName),
 					resource.TestCheckTypeSetElemAttrPair(resourceName, "policy_names.*", rolePolicyResourceName, names.AttrName),
 					resource.TestCheckTypeSetElemAttrPair(resourceName, "policy_names.*", rolePolicyResourceName2, names.AttrName),
@@ -129,16 +128,16 @@ func TestAccIAMRolePoliciesExclusive_multiple(t *testing.T) {
 			{
 				ResourceName:                         resourceName,
 				ImportState:                          true,
-				ImportStateIdFunc:                    testAccRolePoliciesExclusiveImportStateIdFunc(resourceName),
+				ImportStateIdFunc:                    acctest.AttrImportStateIdFunc(resourceName, "role_name"),
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "role_name",
 			},
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePolicyExists(ctx, rolePolicyResourceName, &rolePolicy),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePolicyExists(ctx, t, rolePolicyResourceName, &rolePolicy),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					resource.TestCheckResourceAttrPair(resourceName, "role_name", roleResourceName, names.AttrName),
 					resource.TestCheckTypeSetElemAttrPair(resourceName, "policy_names.*", rolePolicyResourceName, names.AttrName),
 				),
@@ -151,25 +150,25 @@ func TestAccIAMRolePoliciesExclusive_empty(t *testing.T) {
 	ctx := acctest.Context(t)
 
 	var role types.Role
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_iam_role_policies_exclusive.test"
 	roleResourceName := "aws_iam_role.test"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck: func() {
 			acctest.PreCheck(ctx, t)
 		},
 		ErrorCheck:               acctest.ErrorCheck(t, names.IAMServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx),
+		CheckDestroy:             testAccCheckRolePoliciesExclusiveDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRolePoliciesExclusiveConfig_empty(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					resource.TestCheckResourceAttrPair(resourceName, "role_name", roleResourceName, names.AttrName),
-					resource.TestCheckResourceAttr(resourceName, "policy_names.#", acctest.Ct0),
+					resource.TestCheckResourceAttr(resourceName, "policy_names.#", "0"),
 				),
 				// The empty `policy_names` argument in the exclusive lock will remove the
 				// inline policy defined in this configuration, so a diff is expected
@@ -184,32 +183,32 @@ func TestAccIAMRolePoliciesExclusive_outOfBandRemoval(t *testing.T) {
 	ctx := acctest.Context(t)
 
 	var role types.Role
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	resourceName := "aws_iam_role_policies_exclusive.test"
 	roleResourceName := "aws_iam_role.test"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.IAMServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckRoleDestroy(ctx),
+		CheckDestroy:             testAccCheckRoleDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
-					testAccCheckRolePolicyRemoveInlinePolicy(ctx, &role, rName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
+					testAccCheckRolePolicyRemoveInlinePolicy(ctx, t, &role, rName),
 				),
 				ExpectNonEmptyPlan: true,
 			},
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					resource.TestCheckResourceAttrPair(resourceName, "role_name", roleResourceName, names.AttrName),
-					resource.TestCheckResourceAttr(resourceName, "policy_names.#", acctest.Ct1),
+					resource.TestCheckResourceAttr(resourceName, "policy_names.#", "1"),
 				),
 			},
 		},
@@ -221,42 +220,42 @@ func TestAccIAMRolePoliciesExclusive_outOfBandAddition(t *testing.T) {
 	ctx := acctest.Context(t)
 
 	var role types.Role
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
 	policyName := rName + "-out-of-band"
 	resourceName := "aws_iam_role_policies_exclusive.test"
 	roleResourceName := "aws_iam_role.test"
 
-	resource.ParallelTest(t, resource.TestCase{
+	acctest.ParallelTest(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.IAMServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckRoleDestroy(ctx),
+		CheckDestroy:             testAccCheckRoleDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
-					testAccCheckRolePolicyAddInlinePolicy(ctx, &role, policyName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
+					testAccCheckRolePolicyAddInlinePolicy(ctx, t, &role, policyName),
 				),
 				ExpectNonEmptyPlan: true,
 			},
 			{
 				Config: testAccRolePoliciesExclusiveConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckRoleExists(ctx, roleResourceName, &role),
-					testAccCheckRolePoliciesExclusiveExists(ctx, resourceName),
+					testAccCheckRoleExists(ctx, t, roleResourceName, &role),
+					testAccCheckRolePoliciesExclusiveExists(ctx, t, resourceName),
 					resource.TestCheckResourceAttrPair(resourceName, "role_name", roleResourceName, names.AttrName),
-					resource.TestCheckResourceAttr(resourceName, "policy_names.#", acctest.Ct1),
+					resource.TestCheckResourceAttr(resourceName, "policy_names.#", "1"),
 				),
 			},
 		},
 	})
 }
 
-func testAccCheckRolePoliciesExclusiveDestroy(ctx context.Context) resource.TestCheckFunc {
+func testAccCheckRolePoliciesExclusiveDestroy(ctx context.Context, t *testing.T) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		conn := acctest.Provider.Meta().(*conns.AWSClient).IAMClient(ctx)
+		conn := acctest.ProviderMeta(ctx, t).IAMClient(ctx)
 
 		for _, rs := range s.RootModule().Resources {
 			if rs.Type != "aws_iam_role_policies_exclusive" {
@@ -279,7 +278,7 @@ func testAccCheckRolePoliciesExclusiveDestroy(ctx context.Context) resource.Test
 	}
 }
 
-func testAccCheckRolePoliciesExclusiveExists(ctx context.Context, name string) resource.TestCheckFunc {
+func testAccCheckRolePoliciesExclusiveExists(ctx context.Context, t *testing.T, name string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[name]
 		if !ok {
@@ -291,29 +290,18 @@ func testAccCheckRolePoliciesExclusiveExists(ctx context.Context, name string) r
 			return create.Error(names.IAM, create.ErrActionCheckingExistence, tfiam.ResNameRolePoliciesExclusive, name, errors.New("not set"))
 		}
 
-		conn := acctest.Provider.Meta().(*conns.AWSClient).IAMClient(ctx)
+		conn := acctest.ProviderMeta(ctx, t).IAMClient(ctx)
 		out, err := tfiam.FindRolePoliciesByName(ctx, conn, roleName)
 		if err != nil {
 			return create.Error(names.IAM, create.ErrActionCheckingExistence, tfiam.ResNameRolePoliciesExclusive, roleName, err)
 		}
 
 		policyCount := rs.Primary.Attributes["policy_names.#"]
-		if policyCount != fmt.Sprint(len(out)) {
+		if policyCount != strconv.Itoa(len(out)) {
 			return create.Error(names.IAM, create.ErrActionCheckingExistence, tfiam.ResNameRolePoliciesExclusive, roleName, errors.New("unexpected policy_names count"))
 		}
 
 		return nil
-	}
-}
-
-func testAccRolePoliciesExclusiveImportStateIdFunc(resourceName string) resource.ImportStateIdFunc {
-	return func(s *terraform.State) (string, error) {
-		rs, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return "", fmt.Errorf("Not found: %s", resourceName)
-		}
-
-		return rs.Primary.Attributes["role_name"], nil
 	}
 }
 

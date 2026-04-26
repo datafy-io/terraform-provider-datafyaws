@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package eks
 
@@ -17,7 +19,9 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
-// @SDKDataSource("aws_eks_addon")
+// @SDKDataSource("aws_eks_addon", name="Add-On")
+// @Tags
+// @Testing(tagsTest=false)
 func dataSourceAddon() *schema.Resource {
 	return &schema.Resource{
 		ReadWithoutTimeout: dataSourceAddonRead,
@@ -52,6 +56,22 @@ func dataSourceAddon() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			"pod_identity_association": {
+				Type:     schema.TypeSet,
+				Computed: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						names.AttrRoleARN: {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"service_account": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+					},
+				},
+			},
 			"service_account_role_arn": {
 				Type:     schema.TypeString,
 				Computed: true,
@@ -61,16 +81,13 @@ func dataSourceAddon() *schema.Resource {
 	}
 }
 
-func dataSourceAddonRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func dataSourceAddonRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
-
 	conn := meta.(*conns.AWSClient).EKSClient(ctx)
-	ignoreTagsConfig := meta.(*conns.AWSClient).IgnoreTagsConfig
 
 	addonName := d.Get("addon_name").(string)
 	clusterName := d.Get(names.AttrClusterName).(string)
-	id := AddonCreateResourceID(clusterName, addonName)
-
+	id := addonCreateResourceID(clusterName, addonName)
 	addon, err := findAddonByTwoPartKey(ctx, conn, clusterName, addonName)
 
 	if err != nil {
@@ -83,11 +100,14 @@ func dataSourceAddonRead(ctx context.Context, d *schema.ResourceData, meta inter
 	d.Set("configuration_values", addon.ConfigurationValues)
 	d.Set(names.AttrCreatedAt, aws.ToTime(addon.CreatedAt).Format(time.RFC3339))
 	d.Set("modified_at", aws.ToTime(addon.ModifiedAt).Format(time.RFC3339))
+	if tfList, err := flattenAddonPodIdentityAssociations(ctx, conn, addon.PodIdentityAssociations, clusterName); err != nil {
+		return sdkdiag.AppendFromErr(diags, err)
+	} else if err := d.Set("pod_identity_association", tfList); err != nil {
+		return sdkdiag.AppendErrorf(diags, "setting pod_identity_association: %s", err)
+	}
 	d.Set("service_account_role_arn", addon.ServiceAccountRoleArn)
 
-	if err := d.Set(names.AttrTags, KeyValueTags(ctx, addon.Tags).IgnoreAWS().IgnoreConfig(ignoreTagsConfig).Map()); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting tags: %s", err)
-	}
+	setTagsOut(ctx, addon.Tags)
 
 	return diags
 }

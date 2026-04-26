@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package sesv2_test
@@ -12,9 +12,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-provider-aws/internal/acctest"
-	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tfsesv2 "github.com/hashicorp/terraform-provider-aws/internal/service/sesv2"
-	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
@@ -35,11 +34,11 @@ func testAccAccountVDMAttributes_basic(t *testing.T) {
 	ctx := acctest.Context(t)
 	resourceName := "aws_sesv2_account_vdm_attributes.test"
 
-	resource.Test(t, resource.TestCase{
+	acctest.Test(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.SESV2ServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx),
+		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccAccountVDMAttributesConfig_basic(),
@@ -60,16 +59,16 @@ func testAccAccountVDMAttributes_disappears(t *testing.T) {
 	ctx := acctest.Context(t)
 	resourceName := "aws_sesv2_account_vdm_attributes.test"
 
-	resource.Test(t, resource.TestCase{
+	acctest.Test(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.SESV2ServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx),
+		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccAccountVDMAttributesConfig_basic(),
 				Check: resource.ComposeTestCheckFunc(
-					acctest.CheckResourceDisappears(ctx, acctest.Provider, tfsesv2.ResourceAccountVDMAttributes(), resourceName),
+					acctest.CheckSDKResourceDisappears(ctx, t, tfsesv2.ResourceAccountVDMAttributes(), resourceName),
 				),
 				ExpectNonEmptyPlan: true,
 			},
@@ -81,16 +80,16 @@ func testAccAccountVDMAttributes_engagementMetrics(t *testing.T) {
 	ctx := acctest.Context(t)
 	resourceName := "aws_sesv2_account_vdm_attributes.test"
 
-	resource.Test(t, resource.TestCase{
+	acctest.Test(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.SESV2ServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx),
+		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccAccountVDMAttributesConfig_engagementMetrics(string(types.FeatureStatusEnabled)),
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "dashboard_attributes.#", acctest.Ct1),
+					resource.TestCheckResourceAttr(resourceName, "dashboard_attributes.#", "1"),
 					resource.TestCheckResourceAttr(resourceName, "dashboard_attributes.0.engagement_metrics", string(types.FeatureStatusEnabled)),
 				),
 			},
@@ -102,7 +101,7 @@ func testAccAccountVDMAttributes_engagementMetrics(t *testing.T) {
 			{
 				Config: testAccAccountVDMAttributesConfig_engagementMetrics(string(types.FeatureStatusDisabled)),
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "dashboard_attributes.#", acctest.Ct1),
+					resource.TestCheckResourceAttr(resourceName, "dashboard_attributes.#", "1"),
 					resource.TestCheckResourceAttr(resourceName, "dashboard_attributes.0.engagement_metrics", string(types.FeatureStatusDisabled)),
 				),
 			},
@@ -114,16 +113,16 @@ func testAccAccountVDMAttributes_optimizedSharedDelivery(t *testing.T) {
 	ctx := acctest.Context(t)
 	resourceName := "aws_sesv2_account_vdm_attributes.test"
 
-	resource.Test(t, resource.TestCase{
+	acctest.Test(ctx, t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.SESV2ServiceID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx),
+		CheckDestroy:             testAccCheckAccountVDMAttributesDestroy(ctx, t),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccAccountVDMAttributesConfig_optimizedSharedDelivery(string(types.FeatureStatusEnabled)),
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "guardian_attributes.#", acctest.Ct1),
+					resource.TestCheckResourceAttr(resourceName, "guardian_attributes.#", "1"),
 					resource.TestCheckResourceAttr(resourceName, "guardian_attributes.0.optimized_shared_delivery", string(types.FeatureStatusEnabled)),
 				),
 			},
@@ -135,7 +134,7 @@ func testAccAccountVDMAttributes_optimizedSharedDelivery(t *testing.T) {
 			{
 				Config: testAccAccountVDMAttributesConfig_optimizedSharedDelivery(string(types.FeatureStatusDisabled)),
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "guardian_attributes.#", acctest.Ct1),
+					resource.TestCheckResourceAttr(resourceName, "guardian_attributes.#", "1"),
 					resource.TestCheckResourceAttr(resourceName, "guardian_attributes.0.optimized_shared_delivery", string(types.FeatureStatusDisabled)),
 				),
 			},
@@ -143,9 +142,9 @@ func testAccAccountVDMAttributes_optimizedSharedDelivery(t *testing.T) {
 	})
 }
 
-func testAccCheckAccountVDMAttributesDestroy(ctx context.Context) resource.TestCheckFunc {
+func testAccCheckAccountVDMAttributesDestroy(ctx context.Context, t *testing.T) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		conn := acctest.Provider.Meta().(*conns.AWSClient).SESV2Client(ctx)
+		conn := acctest.ProviderMeta(ctx, t).SESV2Client(ctx)
 
 		for _, rs := range s.RootModule().Resources {
 			if rs.Type != "aws_sesv2_account_vdm_attributes" {
@@ -154,7 +153,7 @@ func testAccCheckAccountVDMAttributesDestroy(ctx context.Context) resource.TestC
 
 			output, err := tfsesv2.FindAccountVDMAttributes(ctx, conn)
 
-			if tfresource.NotFound(err) {
+			if retry.NotFound(err) {
 				continue
 			}
 

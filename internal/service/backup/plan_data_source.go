@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package backup
 
@@ -16,6 +18,7 @@ import (
 )
 
 // @SDKDataSource("aws_backup_plan", name="Plan")
+// @Tags(identifierAttribute="arn")
 func dataSourcePlan() *schema.Resource {
 	return &schema.Resource{
 		ReadWithoutTimeout: dataSourcePlanRead,
@@ -103,7 +106,27 @@ func dataSourcePlan() *schema.Resource {
 							Type:     schema.TypeString,
 							Computed: true,
 						},
+						"scan_action": {
+							Type:     schema.TypeSet,
+							Computed: true,
+							Elem: &schema.Resource{
+								Schema: map[string]*schema.Schema{
+									"malware_scanner": {
+										Type:     schema.TypeString,
+										Computed: true,
+									},
+									"scan_mode": {
+										Type:     schema.TypeString,
+										Computed: true,
+									},
+								},
+							},
+						},
 						names.AttrSchedule: {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"schedule_expression_timezone": {
 							Type:     schema.TypeString,
 							Computed: true,
 						},
@@ -111,7 +134,34 @@ func dataSourcePlan() *schema.Resource {
 							Type:     schema.TypeInt,
 							Computed: true,
 						},
+						"target_logically_air_gapped_backup_vault_arn": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
 						"target_vault_name": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+					},
+				},
+			},
+			"scan_setting": {
+				Type:     schema.TypeSet,
+				Computed: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"malware_scanner": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"resource_types": {
+							Type:     schema.TypeSet,
+							Computed: true,
+							Elem: &schema.Schema{
+								Type: schema.TypeString,
+							},
+						},
+						"scanner_role_arn": {
 							Type:     schema.TypeString,
 							Computed: true,
 						},
@@ -127,10 +177,9 @@ func dataSourcePlan() *schema.Resource {
 	}
 }
 
-func dataSourcePlanRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func dataSourcePlanRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).BackupClient(ctx)
-	ignoreTagsConfig := meta.(*conns.AWSClient).IgnoreTagsConfig
 
 	id := d.Get("plan_id").(string)
 	output, err := findPlanByID(ctx, conn, id)
@@ -142,20 +191,13 @@ func dataSourcePlanRead(ctx context.Context, d *schema.ResourceData, meta interf
 	d.SetId(aws.ToString(output.BackupPlanId))
 	d.Set(names.AttrARN, output.BackupPlanArn)
 	d.Set(names.AttrName, output.BackupPlan.BackupPlanName)
-	if err := d.Set(names.AttrRule, flattenPlanRules(ctx, output.BackupPlan.Rules)); err != nil {
+	if err := d.Set(names.AttrRule, flattenBackupRules(ctx, output.BackupPlan.Rules)); err != nil {
 		return sdkdiag.AppendErrorf(diags, "setting rule: %s", err)
 	}
+	if err := d.Set("scan_setting", flattenScanSettings(output.BackupPlan.ScanSettings)); err != nil {
+		return sdkdiag.AppendErrorf(diags, "setting scan_settings: %s", err)
+	}
 	d.Set(names.AttrVersion, output.VersionId)
-
-	tags, err := listTags(ctx, conn, d.Get(names.AttrARN).(string))
-
-	if err != nil {
-		return sdkdiag.AppendErrorf(diags, "listing tags for Backup Plan (%s): %s", d.Id(), err)
-	}
-
-	if err := d.Set(names.AttrTags, tags.IgnoreAWS().IgnoreConfig(ignoreTagsConfig).Map()); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting tags: %s", err)
-	}
 
 	return diags
 }

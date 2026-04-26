@@ -1,14 +1,17 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package dax
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,7 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dax"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/dax/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
@@ -25,6 +27,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
@@ -72,7 +75,7 @@ func ResourceCluster() *schema.Resource {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
-				StateFunc: func(val interface{}) string {
+				StateFunc: func(val any) string {
 					return strings.ToLower(val.(string))
 				},
 				ValidateFunc: validation.All(
@@ -122,7 +125,7 @@ func ResourceCluster() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 				Computed: true,
-				StateFunc: func(val interface{}) string {
+				StateFunc: func(val any) string {
 					return strings.ToLower(val.(string))
 				},
 				ValidateFunc: verify.ValidOnceAWeekWindowFormat,
@@ -200,12 +203,10 @@ func ResourceCluster() *schema.Resource {
 				},
 			},
 		},
-
-		CustomizeDiff: verify.SetTagsDiff,
 	}
 }
 
-func resourceClusterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DAXClient(ctx)
 
@@ -252,29 +253,26 @@ func resourceClusterCreate(ctx context.Context, d *schema.ResourceData, meta int
 		input.AvailabilityZones = flex.ExpandStringValueSet(preferredAZs)
 	}
 
-	if v, ok := d.GetOk("server_side_encryption"); ok && len(v.([]interface{})) > 0 {
-		options := v.([]interface{})
-		s := options[0].(map[string]interface{})
+	if v, ok := d.GetOk("server_side_encryption"); ok && len(v.([]any)) > 0 {
+		options := v.([]any)
+		s := options[0].(map[string]any)
 		input.SSESpecification = expandEncryptAtRestOptions(s)
 	}
 
 	// IAM roles take some time to propagate
 	var resp *dax.CreateClusterOutput
-	err := retry.RetryContext(ctx, propagationTimeout, func() *retry.RetryError {
+	err := tfresource.Retry(ctx, propagationTimeout, func(ctx context.Context) *tfresource.RetryError {
 		var err error
 		resp, err = conn.CreateCluster(ctx, input)
 		if errs.IsA[*awstypes.InvalidParameterValueException](err) {
-			return retry.RetryableError(err)
+			return tfresource.RetryableError(err)
 		}
 
 		if err != nil {
-			return retry.NonRetryableError(err)
+			return tfresource.NonRetryableError(err)
 		}
 		return nil
 	})
-	if tfresource.TimedOut(err) {
-		resp, err = conn.CreateCluster(ctx, input)
-	}
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "creating DAX cluster: %s", err)
 	}
@@ -289,7 +287,7 @@ func resourceClusterCreate(ctx context.Context, d *schema.ResourceData, meta int
 	stateConf := &retry.StateChangeConf{
 		Pending:    pending,
 		Target:     []string{"available"},
-		Refresh:    clusterStateRefreshFunc(ctx, conn, d.Id(), "available", pending),
+		Refresh:    clusterStateRefreshFunc(conn, d.Id(), "available", pending),
 		Timeout:    d.Timeout(schema.TimeoutCreate),
 		MinTimeout: 10 * time.Second,
 		Delay:      30 * time.Second,
@@ -304,7 +302,7 @@ func resourceClusterCreate(ctx context.Context, d *schema.ResourceData, meta int
 	return append(diags, resourceClusterRead(ctx, d, meta)...)
 }
 
-func resourceClusterRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DAXClient(ctx)
 
@@ -371,7 +369,7 @@ func resourceClusterRead(ctx context.Context, d *schema.ResourceData, meta inter
 	return diags
 }
 
-func resourceClusterUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DAXClient(ctx)
 
@@ -428,10 +426,11 @@ func resourceClusterUpdate(ctx context.Context, d *schema.ResourceData, meta int
 		n := nraw.(int)
 		if n < o {
 			log.Printf("[INFO] Decreasing nodes in DAX cluster %s from %d to %d", d.Id(), o, n)
-			_, err := conn.DecreaseReplicationFactor(ctx, &dax.DecreaseReplicationFactorInput{
+			input := dax.DecreaseReplicationFactorInput{
 				ClusterName:          aws.String(d.Id()),
 				NewReplicationFactor: int32(nraw.(int)),
-			})
+			}
+			_, err := conn.DecreaseReplicationFactor(ctx, &input)
 			if err != nil {
 				return sdkdiag.AppendErrorf(diags, "increasing nodes in DAX cluster %s, error: %s", d.Id(), err)
 			}
@@ -439,10 +438,11 @@ func resourceClusterUpdate(ctx context.Context, d *schema.ResourceData, meta int
 		}
 		if n > o {
 			log.Printf("[INFO] Increasing nodes in DAX cluster %s from %d to %d", d.Id(), o, n)
-			_, err := conn.IncreaseReplicationFactor(ctx, &dax.IncreaseReplicationFactorInput{
+			input := dax.IncreaseReplicationFactorInput{
 				ClusterName:          aws.String(d.Id()),
 				NewReplicationFactor: int32(nraw.(int)),
-			})
+			}
+			_, err := conn.IncreaseReplicationFactor(ctx, &input)
 			if err != nil {
 				return sdkdiag.AppendErrorf(diags, "increasing nodes in DAX cluster %s, error: %s", d.Id(), err)
 			}
@@ -456,7 +456,7 @@ func resourceClusterUpdate(ctx context.Context, d *schema.ResourceData, meta int
 		stateConf := &retry.StateChangeConf{
 			Pending:    pending,
 			Target:     []string{"available"},
-			Refresh:    clusterStateRefreshFunc(ctx, conn, d.Id(), "available", pending),
+			Refresh:    clusterStateRefreshFunc(conn, d.Id(), "available", pending),
 			Timeout:    d.Timeout(schema.TimeoutUpdate),
 			MinTimeout: 10 * time.Second,
 			Delay:      30 * time.Second,
@@ -472,14 +472,14 @@ func resourceClusterUpdate(ctx context.Context, d *schema.ResourceData, meta int
 }
 
 func setClusterNodeData(d *schema.ResourceData, c awstypes.Cluster) error {
-	sortedNodes := make([]awstypes.Node, len(c.Nodes))
-	copy(sortedNodes, c.Nodes)
-	sort.Sort(byNodeId(sortedNodes))
+	sortedNodes := slices.SortedFunc(slices.Values(c.Nodes), func(a, b awstypes.Node) int {
+		return cmp.Compare(aws.ToString(a.NodeId), aws.ToString(b.NodeId))
+	})
 
-	nodeData := make([]map[string]interface{}, 0, len(sortedNodes))
+	nodeData := make([]map[string]any, 0, len(sortedNodes))
 
 	for _, node := range sortedNodes {
-		nodeData = append(nodeData, map[string]interface{}{
+		nodeData = append(nodeData, map[string]any{
 			names.AttrID:               aws.ToString(node.NodeId),
 			names.AttrAddress:          aws.ToString(node.Endpoint.Address),
 			names.AttrPort:             node.Endpoint.Port,
@@ -490,38 +490,25 @@ func setClusterNodeData(d *schema.ResourceData, c awstypes.Cluster) error {
 	return d.Set("nodes", nodeData)
 }
 
-type byNodeId []awstypes.Node
-
-func (b byNodeId) Len() int      { return len(b) }
-func (b byNodeId) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
-func (b byNodeId) Less(i, j int) bool {
-	return b[i].NodeId != nil && b[j].NodeId != nil &&
-		aws.ToString(b[i].NodeId) < aws.ToString(b[j].NodeId)
-}
-
-func resourceClusterDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceClusterDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DAXClient(ctx)
 
 	req := &dax.DeleteClusterInput{
 		ClusterName: aws.String(d.Id()),
 	}
-	err := retry.RetryContext(ctx, 5*time.Minute, func() *retry.RetryError {
+	err := tfresource.Retry(ctx, 5*time.Minute, func(ctx context.Context) *tfresource.RetryError {
 		_, err := conn.DeleteCluster(ctx, req)
 		if errs.IsA[*awstypes.InvalidClusterStateFault](err) {
-			return retry.RetryableError(err)
+			return tfresource.RetryableError(err)
 		}
 
 		if err != nil {
-			return retry.NonRetryableError(err)
+			return tfresource.NonRetryableError(err)
 		}
 
 		return nil
 	})
-
-	if tfresource.TimedOut(err) {
-		_, err = conn.DeleteCluster(ctx, req)
-	}
 
 	if errs.IsA[*awstypes.ClusterNotFoundFault](err) {
 		return diags
@@ -535,7 +522,7 @@ func resourceClusterDelete(ctx context.Context, d *schema.ResourceData, meta int
 	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"creating", "available", "deleting", "incompatible-parameters", "incompatible-network"},
 		Target:     []string{},
-		Refresh:    clusterStateRefreshFunc(ctx, conn, d.Id(), "", []string{}),
+		Refresh:    clusterStateRefreshFunc(conn, d.Id(), "", []string{}),
 		Timeout:    d.Timeout(schema.TimeoutDelete),
 		MinTimeout: 10 * time.Second,
 		Delay:      30 * time.Second,
@@ -549,11 +536,12 @@ func resourceClusterDelete(ctx context.Context, d *schema.ResourceData, meta int
 	return diags
 }
 
-func clusterStateRefreshFunc(ctx context.Context, conn *dax.Client, clusterID, givenState string, pending []string) retry.StateRefreshFunc {
-	return func() (interface{}, string, error) {
-		resp, err := conn.DescribeClusters(ctx, &dax.DescribeClustersInput{
+func clusterStateRefreshFunc(conn *dax.Client, clusterID, givenState string, pending []string) retry.StateRefreshFunc {
+	return func(ctx context.Context) (any, string, error) {
+		input := dax.DescribeClustersInput{
 			ClusterNames: []string{clusterID},
-		})
+		}
+		resp, err := conn.DescribeClusters(ctx, &input)
 
 		if errs.IsA[*awstypes.ClusterNotFoundFault](err) {
 			log.Printf("[DEBUG] Detect deletion")
