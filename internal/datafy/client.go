@@ -3,6 +3,7 @@ package datafy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,9 +60,9 @@ func NewDatafyClient(config *Config) *Client {
 func toError(response *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(response.Body).Decode(&errResp); err == nil && errResp.Message != "" {
-		return fmt.Errorf(errResp.Message)
+		return errors.New(errResp.Message)
 	}
-	return fmt.Errorf(response.Status)
+	return errors.New(response.Status)
 }
 
 func (c *Client) sendRequest(method, endpoint string, body any) (*http.Response, error) {
@@ -103,7 +104,7 @@ func (c *Client) GetVolume(volumeId string) (*Volume, error) {
 		return nil, NotFoundError
 	}
 
-	return nil, fmt.Errorf(resp.Status)
+	return nil, errors.New(resp.Status)
 }
 
 func (c *Client) GetSnapshot(snapshotId string) (*Snapshot, error) {
@@ -125,7 +126,7 @@ func (c *Client) GetSnapshot(snapshotId string) (*Snapshot, error) {
 		return nil, NotFoundError
 	}
 
-	return nil, fmt.Errorf(resp.Status)
+	return nil, errors.New(resp.Status)
 }
 
 func (c *Client) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
@@ -178,7 +179,7 @@ func (c *Client) AttachVolume(instanceId string, volumeId string, deviceName str
 		return nil
 	}
 
-	return fmt.Errorf(resp.Status)
+	return errors.New(resp.Status)
 }
 
 func (c *Client) DetachVolume(instanceId string, volumeId string) error {
@@ -196,5 +197,5 @@ func (c *Client) DetachVolume(instanceId string, volumeId string) error {
 		return nil
 	}
 
-	return fmt.Errorf(resp.Status)
+	return errors.New(resp.Status)
 }
