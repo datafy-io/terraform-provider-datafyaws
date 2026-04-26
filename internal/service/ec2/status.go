@@ -588,6 +588,22 @@ func statusVolumeAttachment(conn *ec2.Client, volumeID, instanceID, deviceName s
 	}
 }
 
+func statusDatafyVolumeAttachment(conn *ec2.Client, volumeID, instanceID string) retry.StateRefreshFunc {
+	return func(ctx context.Context) (any, string, error) {
+		output, err := findDatafyVolumeAttachment(ctx, conn, volumeID, instanceID)
+
+		if retry.NotFound(err) {
+			return nil, "", nil
+		}
+
+		if err != nil {
+			return nil, "", err
+		}
+
+		return output, string(output.State), nil
+	}
+}
+
 func statusVolumeAttachmentInstanceState(conn *ec2.Client, id string) retry.StateRefreshFunc {
 	return func(ctx context.Context) (any, string, error) {
 		output, err := findInstance(ctx, conn, &ec2.DescribeInstancesInput{
