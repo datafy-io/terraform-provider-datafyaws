@@ -1,10 +1,13 @@
 // Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
+
 package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -53,7 +56,6 @@ const (
 // @ImportIDHandler("globalSecondaryIndexImportID")
 // @Testing(existsType="github.com/aws/aws-sdk-go-v2/service/dynamodb/types;awstypes;awstypes.GlobalSecondaryIndexDescription")
 // @Testing(hasNoPreExistingResource=true)
-// @Testing(existsTakesT=true, destroyTakesT=true)
 // @Testing(importStateIdFunc=testAccGlobalSecondaryIndexImportStateIdFunc)
 // @Testing(importStateIdAttribute="arn")
 // @Testing(requireEnvVar="TF_AWS_EXPERIMENT_dynamodb_global_secondary_index")
@@ -127,6 +129,8 @@ func (r *resourceGlobalSecondaryIndex) Schema(ctx context.Context, request resou
 					},
 				},
 				Validators: []validator.List{
+					listvalidator.IsRequired(),
+					listvalidator.SizeAtLeast(1),
 					globalSecondaryIndexKeySchemaListValidator{},
 				},
 				PlanModifiers: []planmodifier.List{
@@ -576,7 +580,7 @@ func (r *resourceGlobalSecondaryIndex) Delete(ctx context.Context, request resou
 		}
 
 		// exit if error says the table is being deleted
-		if err, ok := errs.As[*awstypes.ResourceInUseException](err); ok && err != nil && strings.Contains(err.Error(), "Table is being deleted") {
+		if err, ok := errors.AsType[*awstypes.ResourceInUseException](err); ok && err != nil && strings.Contains(err.Error(), "Table is being deleted") {
 			return
 		}
 
@@ -789,13 +793,13 @@ var (
 
 type globalSecondaryIndexImportID struct{}
 
-func (globalSecondaryIndexImportID) Parse(id string) (string, map[string]string, error) {
+func (globalSecondaryIndexImportID) Parse(id string) (string, map[string]any, error) {
 	tableName, indexName, found := strings.Cut(id, intflex.ResourceIdSeparator)
 	if !found {
 		return "", nil, fmt.Errorf("Import ID \"%s\" should be in the format <table-name>"+intflex.ResourceIdSeparator+"<index-name>", id)
 	}
 
-	result := map[string]string{
+	result := map[string]any{
 		names.AttrTableName: tableName,
 		"index_name":        indexName,
 	}

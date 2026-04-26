@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
+
 package cloudfront
 
 import (
@@ -620,7 +622,7 @@ func findDistributionTenant(ctx context.Context, conn *cloudfront.Client, input 
 	}
 
 	if output == nil || output.DistributionTenant == nil || output.DistributionTenant.Domains == nil || output.DistributionTenant.DistributionId == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output, nil
@@ -835,6 +837,10 @@ func waitForManagedCertificateIssued(ctx context.Context, conn *cloudfront.Clien
 }
 
 func updateDistributionTenantWithManagedCertificate(ctx context.Context, conn *cloudfront.Client, dtOutput *cloudfront.GetDistributionTenantOutput, mcOutput *cloudfront.GetManagedCertificateDetailsOutput) error {
+	if mcOutput == nil {
+		return nil
+	}
+
 	// Check if we need to update the certificate ARN
 	if !needToUpdateCertificateARN(dtOutput.DistributionTenant, aws.ToString(mcOutput.ManagedCertificateDetails.CertificateArn)) {
 		// Certificate ARN already matches, nothing to do

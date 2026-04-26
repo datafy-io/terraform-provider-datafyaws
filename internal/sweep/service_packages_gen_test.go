@@ -170,6 +170,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/service/memorydb"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/meta"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/mgn"
+	"github.com/hashicorp/terraform-provider-aws/internal/service/mpa"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/mq"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/mwaa"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/mwaaserverless"
@@ -222,10 +223,12 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/service/rum"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/s3"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/s3control"
+	"github.com/hashicorp/terraform-provider-aws/internal/service/s3files"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/s3outposts"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/s3tables"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/s3vectors"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/sagemaker"
+	"github.com/hashicorp/terraform-provider-aws/internal/service/savingsplans"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/scheduler"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/schemas"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/secretsmanager"
@@ -260,6 +263,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/service/timestreamwrite"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/transcribe"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/transfer"
+	"github.com/hashicorp/terraform-provider-aws/internal/service/uxc"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/verifiedpermissions"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/vpclattice"
 	"github.com/hashicorp/terraform-provider-aws/internal/service/waf"
@@ -434,6 +438,7 @@ func servicePackages(ctx context.Context) []conns.ServicePackage {
 		memorydb.ServicePackage(ctx),
 		meta.ServicePackage(ctx),
 		mgn.ServicePackage(ctx),
+		mpa.ServicePackage(ctx),
 		mq.ServicePackage(ctx),
 		mwaa.ServicePackage(ctx),
 		mwaaserverless.ServicePackage(ctx),
@@ -486,10 +491,12 @@ func servicePackages(ctx context.Context) []conns.ServicePackage {
 		rum.ServicePackage(ctx),
 		s3.ServicePackage(ctx),
 		s3control.ServicePackage(ctx),
+		s3files.ServicePackage(ctx),
 		s3outposts.ServicePackage(ctx),
 		s3tables.ServicePackage(ctx),
 		s3vectors.ServicePackage(ctx),
 		sagemaker.ServicePackage(ctx),
+		savingsplans.ServicePackage(ctx),
 		scheduler.ServicePackage(ctx),
 		schemas.ServicePackage(ctx),
 		secretsmanager.ServicePackage(ctx),
@@ -524,6 +531,7 @@ func servicePackages(ctx context.Context) []conns.ServicePackage {
 		timestreamwrite.ServicePackage(ctx),
 		transcribe.ServicePackage(ctx),
 		transfer.ServicePackage(ctx),
+		uxc.ServicePackage(ctx),
 		verifiedpermissions.ServicePackage(ctx),
 		vpclattice.ServicePackage(ctx),
 		waf.ServicePackage(ctx),

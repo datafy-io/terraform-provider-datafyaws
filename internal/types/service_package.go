@@ -22,20 +22,38 @@ import (
 type ServicePackageResourceRegion struct {
 	IsOverrideEnabled             bool // Is per-resource Region override supported?
 	IsValidateOverrideInPartition bool // Is the per-resource Region override value validated againt the configured partition?
+	IsOverrideDeprecated          bool // Is per-resource Region override deprecated? i.e. the resource type is actually global
 }
 
 // ResourceRegionDefault returns the default resource region configuration.
 // The default is to enable per-resource Region override and validate the override value.
-func ResourceRegionDefault() ServicePackageResourceRegion {
-	return ServicePackageResourceRegion{
+func ResourceRegionDefault() unique.Handle[ServicePackageResourceRegion] {
+	return unique.Make(ServicePackageResourceRegion{
 		IsOverrideEnabled:             true,
 		IsValidateOverrideInPartition: true,
-	}
+	})
 }
 
 // ResourceRegionDisabled returns the resource region configuration indicating that there is no per-resource Region override.
-func ResourceRegionDisabled() ServicePackageResourceRegion {
-	return ServicePackageResourceRegion{}
+func ResourceRegionDisabled() unique.Handle[ServicePackageResourceRegion] {
+	return unique.Make(ServicePackageResourceRegion{})
+}
+
+// ResourceRegionDeprecatedOverride returns the resource region configuration indicating that per-resource Region override is enabled but deprecated.
+func ResourceRegionDeprecatedOverride() unique.Handle[ServicePackageResourceRegion] {
+	return unique.Make(ServicePackageResourceRegion{
+		IsOverrideEnabled:             true,
+		IsValidateOverrideInPartition: true,
+		IsOverrideDeprecated:          true,
+	})
+}
+
+// ResourceRegionNoPartitionValidation returns the resource region configuration indicating that per-resource Region override is enabled but the value is not validated against the partition.
+func ResourceRegionNoPartitionValidation() unique.Handle[ServicePackageResourceRegion] {
+	return unique.Make(ServicePackageResourceRegion{
+		IsOverrideEnabled:             true,
+		IsValidateOverrideInPartition: false,
+	})
 }
 
 // ServicePackageResourceTags represents resource-level tagging information.
@@ -195,10 +213,26 @@ func RegionalParameterizedIdentity(attributes []IdentityAttribute, opts ...Ident
 	return identity
 }
 
+type IdentityType uint16
+
+const (
+	StringIdentityType IdentityType = iota
+	IntIdentityType
+	Int64IdentityType
+	BoolIdentityType
+	FloatIdentityType
+	Float64IdentityType
+)
+
 type IdentityAttribute struct {
 	name                  string
 	required              bool
 	resourceAttributeName string
+	identityType          IdentityType
+}
+
+func (ia IdentityAttribute) IdentityType() IdentityType {
+	return ia.identityType
 }
 
 func (ia IdentityAttribute) Name() string {
@@ -216,10 +250,51 @@ func (ia IdentityAttribute) ResourceAttributeName() string {
 	return ia.resourceAttributeName
 }
 
+func BoolIdentityAttribute(name string, required bool) IdentityAttribute {
+	return IdentityAttribute{
+		name:         name,
+		required:     required,
+		identityType: BoolIdentityType,
+	}
+}
+
+func FloatIdentityAttribute(name string, required bool) IdentityAttribute {
+	return IdentityAttribute{
+		name:         name,
+		required:     required,
+		identityType: FloatIdentityType,
+	}
+}
+
+func Float64IdentityAttribute(name string, required bool) IdentityAttribute {
+	return IdentityAttribute{
+		name:         name,
+		required:     required,
+		identityType: Float64IdentityType,
+	}
+}
+
+func IntIdentityAttribute(name string, required bool) IdentityAttribute {
+	return IdentityAttribute{
+		name:         name,
+		required:     required,
+		identityType: IntIdentityType,
+	}
+}
+
+func Int64IdentityAttribute(name string, required bool) IdentityAttribute {
+	return IdentityAttribute{
+		name:         name,
+		required:     required,
+		identityType: Int64IdentityType,
+	}
+}
+
 func StringIdentityAttribute(name string, required bool) IdentityAttribute {
 	return IdentityAttribute{
-		name:     name,
-		required: required,
+		name:         name,
+		required:     required,
+		identityType: StringIdentityType,
 	}
 }
 
@@ -470,7 +545,7 @@ func WithSDKv2IdentityUpgraders(identityUpgraders ...schema.IdentityUpgrader) Id
 }
 
 type ImportIDParser interface {
-	Parse(id string) (string, map[string]string, error)
+	Parse(id string) (string, map[string]any, error)
 }
 
 type FrameworkImportIDCreator interface {

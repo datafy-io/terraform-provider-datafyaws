@@ -51,7 +51,7 @@ func findTag(ctx context.Context, conn *ec2.Client, identifier, key string, optF
 	listTags := keyValueTags(ctx, output.Tags)
 
 	if !listTags.KeyExists(key) {
-		return nil, smarterr.NewError(tfresource.NewEmptyResultError(nil))
+		return nil, smarterr.NewError(tfresource.NewEmptyResultError())
 	}
 
 	return listTags.KeyValue(key), nil

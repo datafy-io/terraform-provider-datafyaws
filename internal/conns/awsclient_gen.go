@@ -166,6 +166,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/mediastore"
 	"github.com/aws/aws-sdk-go-v2/service/memorydb"
 	"github.com/aws/aws-sdk-go-v2/service/mgn"
+	"github.com/aws/aws-sdk-go-v2/service/mpa"
 	"github.com/aws/aws-sdk-go-v2/service/mq"
 	"github.com/aws/aws-sdk-go-v2/service/mwaa"
 	"github.com/aws/aws-sdk-go-v2/service/mwaaserverless"
@@ -218,10 +219,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rum"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
+	"github.com/aws/aws-sdk-go-v2/service/s3files"
 	"github.com/aws/aws-sdk-go-v2/service/s3outposts"
 	"github.com/aws/aws-sdk-go-v2/service/s3tables"
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors"
 	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	"github.com/aws/aws-sdk-go-v2/service/savingsplans"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	"github.com/aws/aws-sdk-go-v2/service/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -256,6 +259,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	"github.com/aws/aws-sdk-go-v2/service/transcribe"
 	"github.com/aws/aws-sdk-go-v2/service/transfer"
+	"github.com/aws/aws-sdk-go-v2/service/uxc"
 	"github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	"github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	"github.com/aws/aws-sdk-go-v2/service/waf"
@@ -866,6 +870,10 @@ func (c *AWSClient) M2Client(ctx context.Context) *m2.Client {
 	return errs.Must(client[*m2.Client](ctx, c, names.M2, make(map[string]any)))
 }
 
+func (c *AWSClient) MPAClient(ctx context.Context) *mpa.Client {
+	return errs.Must(client[*mpa.Client](ctx, c, names.MPA, make(map[string]any)))
+}
+
 func (c *AWSClient) MQClient(ctx context.Context) *mq.Client {
 	return errs.Must(client[*mq.Client](ctx, c, names.MQ, make(map[string]any)))
 }
@@ -1114,6 +1122,10 @@ func (c *AWSClient) S3ControlClient(ctx context.Context) *s3control.Client {
 	return errs.Must(client[*s3control.Client](ctx, c, names.S3Control, make(map[string]any)))
 }
 
+func (c *AWSClient) S3FilesClient(ctx context.Context) *s3files.Client {
+	return errs.Must(client[*s3files.Client](ctx, c, names.S3Files, make(map[string]any)))
+}
+
 func (c *AWSClient) S3OutpostsClient(ctx context.Context) *s3outposts.Client {
 	return errs.Must(client[*s3outposts.Client](ctx, c, names.S3Outposts, make(map[string]any)))
 }
@@ -1184,6 +1196,10 @@ func (c *AWSClient) SWFClient(ctx context.Context) *swf.Client {
 
 func (c *AWSClient) SageMakerClient(ctx context.Context) *sagemaker.Client {
 	return errs.Must(client[*sagemaker.Client](ctx, c, names.SageMaker, make(map[string]any)))
+}
+
+func (c *AWSClient) SavingsPlansClient(ctx context.Context) *savingsplans.Client {
+	return errs.Must(client[*savingsplans.Client](ctx, c, names.SavingsPlans, make(map[string]any)))
 }
 
 func (c *AWSClient) SchedulerClient(ctx context.Context) *scheduler.Client {
@@ -1264,6 +1280,10 @@ func (c *AWSClient) TranscribeClient(ctx context.Context) *transcribe.Client {
 
 func (c *AWSClient) TransferClient(ctx context.Context) *transfer.Client {
 	return errs.Must(client[*transfer.Client](ctx, c, names.Transfer, make(map[string]any)))
+}
+
+func (c *AWSClient) UXCClient(ctx context.Context) *uxc.Client {
+	return errs.Must(client[*uxc.Client](ctx, c, names.UXC, make(map[string]any)))
 }
 
 func (c *AWSClient) VPCLatticeClient(ctx context.Context) *vpclattice.Client {

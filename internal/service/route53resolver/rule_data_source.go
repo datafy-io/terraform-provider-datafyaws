@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
+
 package route53resolver
 
 import (
@@ -125,15 +127,12 @@ func dataSourceRuleRead(ctx context.Context, d *schema.ResourceData, meta any) d
 
 		var rules []awstypes.ResolverRule
 
-		pages := route53resolver.NewListResolverRulesPaginator(conn, input)
-		for pages.HasMorePages() {
-			page, err := pages.NextPage(ctx)
-
+		for rule, err := range listResolverRules(ctx, conn, input) {
 			if err != nil {
-				return sdkdiag.AppendErrorf(diags, "listing Route53 Resolver Rules: %s", err)
+				return sdkdiag.AppendFromErr(diags, err)
 			}
 
-			rules = append(rules, page.ResolverRules...)
+			rules = append(rules, rule)
 		}
 
 		if n := len(rules); n == 0 {
