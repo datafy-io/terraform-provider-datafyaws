@@ -337,14 +337,12 @@ func findDatafyVolumeAttachment(ctx context.Context, conn *ec2.Client, volumeID,
 	if state := output.State; state == awstypes.VolumeStateAvailable || state == awstypes.VolumeStateDeleted {
 		return nil, &retry.NotFoundError{
 			Message:     string(state),
-			LastRequest: input,
 		}
 	}
 
 	// Eventual consistency check.
 	if aws.ToString(output.VolumeId) != volumeID {
 		return nil, &retry.NotFoundError{
-			LastRequest: input,
 		}
 	}
 

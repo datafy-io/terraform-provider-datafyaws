@@ -60,7 +60,6 @@ func resourceEBSVolume() *schema.Resource {
 
 		CustomizeDiff: customdiff.Sequence(
 			resourceEBSVolumeCustomizeDiff,
-			verify.SetTagsDiff,
 			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
 				// once the volume is managed, datafy has control on the volume. And ONLY tags can be updated via terraform.
 				changes := slices.DeleteFunc(diff.GetChangedKeysPrefix(""), func(s string) bool {

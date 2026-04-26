@@ -1320,7 +1320,7 @@ func resourceInstanceRead(ctx context.Context, rd *schema.ResourceData, meta any
 func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
-	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+	dc := meta.DatafyClient(ctx)
 
 	if d.HasChange("volume_tags") && !d.IsNewResource() {
 		volIDs, err := getInstanceVolIDs(ctx, conn, d.Id())
@@ -2210,7 +2210,7 @@ func readBlockDevicesFromInstance(ctx context.Context, d *schema.ResourceData, m
 	defaultTagsConfig := meta.DefaultTagsConfig(ctx)
 	ignoreTagsConfig := meta.IgnoreTagsConfig(ctx)
 
-	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+	dc := meta.DatafyClient(ctx)
 	for _, vol := range volResp.Volumes {
 		instanceBd := instanceBlockDevices[aws.ToString(vol.VolumeId)]
 		bd := make(map[string]any)
