@@ -1,0 +1,334 @@
+name: Check Upstream AWS Provider Tags
+
+on:
+  push:
+  schedule:
+    # Run every day at 08:00 UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-upstream-tags:
+    name: Check for new upstream v6 tags
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream tags
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use the GitHub API — no git fetch, no branch noise, no exit code issues.
+          # Paginates through all tags and picks the highest stable vN.x.x for majors 4, 5, 6.
+          LATEST_UPSTREAM=$(gh api \
+            "repos/hashicorp/terraform-provider-aws/tags?per_page=100" \
+            --paginate \
+            --jq '.[].name' \
+            | grep -E '^v(4|5|6)\.[0-9]+\.[0-9]+$' \
+            | sort -V -r \
+            | head -1)
+
+          echo "latest_upstream=${LATEST_UPSTREAM}" >> "$GITHUB_OUTPUT"
+          echo "Latest supported tag: ${LATEST_UPSTREAM}"
+
+      - name: Get last synced tag
+        id: last_synced
+        run: |
+          LAST_SYNCED=""
+          if [ -f ".upstream-sync-tag" ]; then
+            LAST_SYNCED=$(cat .upstream-sync-tag | tr -d '[:space:]')
+          fi
+          echo "last_synced=${LAST_SYNCED}" >> "$GITHUB_OUTPUT"
+          echo "Last synced tag: ${LAST_SYNCED}"
+
+      - name: Compare tags
+        id: compare
+        run: |
+          LATEST="${{ steps.upstream.outputs.latest_upstream }}"
+          LAST="${{ steps.last_synced.outputs.last_synced }}"
+
+          if [ -z "$LATEST" ]; then
+            echo "No supported tag found (v4.x.x / v5.x.x / v6.x.x), skipping."
+            echo "new_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Guard: exit cleanly if the major version is not in the supported set
+          MAJOR=$(echo "$LATEST" | grep -oE '^v([0-9]+)' | tr -d 'v')
+          if [[ "$MAJOR" != "4" && "$MAJOR" != "5" && "$MAJOR" != "6" ]]; then
+            echo "Tag $LATEST has unsupported major version v${MAJOR} — only v4, v5, v6 are supported. Exiting cleanly."
+            echo "new_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$LATEST" == "$LAST" ]; then
+            echo "Already synced with ${LATEST}, nothing to do."
+            echo "new_tag=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New tag detected: ${LATEST} (was: ${LAST:-none})"
+            echo "new_tag=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${LATEST}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Check if Jira ticket already exists for this tag ────────────────────
+      - name: Check Jira ticket exists
+        if: steps.compare.outputs.new_tag == 'true'
+        id: jira_check
+        env:
+          TAG: ${{ steps.compare.outputs.tag }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          SUMMARY="Sync terraform-provider-datafyaws with upstream ${TAG}"
+
+          # Search Jira for an existing issue with this exact summary in project DT
+          EXISTING=$(curl -s \
+            -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${JIRA_BASE_URL}/rest/api/3/issue/picker?query=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "${SUMMARY}")" \
+            | jq -r '.sections[].issues[].summaryText // empty' \
+            | grep -Fx "${SUMMARY}" || true)
+
+          if [ -n "$EXISTING" ]; then
+            echo "Jira ticket already exists for '${SUMMARY}' — skipping creation."
+            echo "ticket_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No existing ticket found — will create."
+            echo "ticket_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Build the Jira description text before passing it to the action ──────
+      - name: Build Jira description
+        if: steps.compare.outputs.new_tag == 'true' && steps.jira_check.outputs.ticket_exists == 'false'
+        id: jira_body
+        env:
+          TAG: ${{ steps.compare.outputs.tag }}
+        run: |
+          # Pre-compute all variables so they resolve correctly inside the heredoc
+          MAJOR=$(echo "${TAG}" | grep -oE '^v([0-9]+)' | tr -d 'v')
+          BASE_BRANCH="release/${MAJOR}.x"
+          BRANCH="sync/upstream-${TAG}"
+
+          # Write to a temp file to avoid shell quoting headaches, then export
+          cat > /tmp/jira_desc.txt <<JIRA_DESC
+          h2. Upstream sync: terraform-provider-aws ${TAG}
+
+          @cloud-bot-agent — please action this ticket.
+
+          ---
+
+          h3. Context
+
+          The upstream HashiCorp Terraform AWS Provider released a new tag: *${TAG}*
+          Our fork *datafy-io/terraform-provider-datafyaws* must be synced with this tag.
+
+          Repository: https://github.com/datafy-io/terraform-provider-datafyaws
+          Upstream: https://github.com/hashicorp/terraform-provider-aws
+          Target branch to create: \`${BRANCH}\`
+
+          ---
+
+          h3. Task for Claude Code Agent
+
+          Work inside the repository *datafy-io/terraform-provider-datafyaws*.
+          Complete every step below in order. Do not skip steps.
+
+          *Step 1 — Clone the fork and set up remotes*
+          {code:bash}
+          gh repo clone datafy-io/terraform-provider-datafyaws
+          cd terraform-provider-datafyaws
+          git remote get-url upstream 2>/dev/null || git remote add upstream https://github.com/hashicorp/terraform-provider-aws.git
+          git fetch upstream --tags
+          git fetch origin
+          {code}
+
+          *Step 2 — Create sync branch from fork's ${BASE_BRANCH}*
+          {code:bash}
+          git fetch origin
+          git checkout ${BASE_BRANCH} && git pull origin ${BASE_BRANCH}
+          git checkout -b ${BRANCH}
+          {code}
+
+          *Step 3 — Merge the upstream tag into the sync branch*
+          {code:bash}
+          # Merging upstream tag ${TAG} into ${BRANCH} (based off our fork's ${BASE_BRANCH}).
+          # PR will target ${BASE_BRANCH} — NOT main.
+          git merge ${TAG} --no-edit --strategy-option=patience || true
+          {code}
+
+          *Step 4 — Enforce .gitattributes merge strategy (run once, idempotent)*
+          {code:bash}
+          # Ensure .gitattributes locks these paths to always use ours on future merges
+          cat >> .gitattributes <<'ATTRS'
+          .github/**  merge=ours
+          docs/**     merge=ours
+          website/**  merge=ours
+          ATTRS
+
+          # De-duplicate in case lines already exist
+          sort -u .gitattributes -o .gitattributes
+          git add .gitattributes
+          {code}
+
+          *Step 5 — Resolve conflicts (apply rules in order)*
+
+          || Path pattern || Strategy || Git command ||
+          | \`.github/**\` | Keep ours — do not replace HashiCorp workflow files | \`git checkout --ours -- .github/ && git add .github/\` |
+          | \`docs/**\` | Keep ours | \`git checkout --ours -- docs/ && git add docs/\` |
+          | \`website/**\` | Keep ours | \`git checkout --ours -- website/ && git add website/\` |
+          | Everything else | Accept upstream unless line contains \`# datafy\` or \`// datafy\` | Manual per file |
+
+          Verify no conflict markers remain:
+          {code:bash}
+          git diff --check
+          grep -rn "<<<<<<" --include="*.go" --include="*.tf" --include="*.md" --include="*.yml" . && echo "CONFLICTS REMAIN" || echo "Clean"
+          {code}
+
+          *Step 6 — Fix CI checks before committing*
+
+          All jobs in *datafy-pull-request.yml* must pass. Fix each one in order:
+
+          *6a — build*
+          {code:bash}
+          make go-build
+          # Must exit 0 before continuing
+          {code}
+
+          *6b — unit-tests* (needs: build)
+          {code:bash}
+          go test ./internal/datafy ./internal/service/ec2 ./internal/provider
+          # Fix any compilation errors or broken tests introduced by the merge
+          {code}
+
+          *6c — importlint* (needs: build)
+          {code:bash}
+          cd .ci/tools && go install github.com/pavius/impi/cmd/impi && cd -
+          impi --local . --scheme stdThirdPartyLocal ./...
+          # Fix any import ordering violations — reorder imports to: std / third-party / local
+          {code}
+
+          *6d — terraform_providers_schema* (needs: build)
+          {code:bash}
+          echo 'data "aws_partition" "example" {}' > example.tf
+          terraform init -plugin-dir terraform-plugin-dir
+          mkdir -p terraform-providers-schema
+          terraform providers schema -json > terraform-providers-schema/schema.json
+          # If schema.json changed, stage it
+          git add terraform-providers-schema/schema.json || true
+          {code}
+
+          *6e — markdown-lint*
+          {code:bash}
+          # Lints all markdown EXCEPT: ./docs ./website/docs ./CHANGELOG.md
+          # ./internal/service/cloudformation/testdata/examplecompany-exampleservice-exampleresource/docs
+          # Fix heading levels, trailing spaces, missing blank lines around headings/fences
+          npx markdownlint-cli2 "**/*.md"             "!./docs/**"             "!./website/docs/**"             "!./CHANGELOG.md"             "!./internal/service/cloudformation/testdata/examplecompany-exampleservice-exampleresource/docs/**"
+          {code}
+
+          *6f — misspell* (runs on datafy-16-cores — run locally to pre-check)
+          {code:bash}
+          cd .ci/tools && go install github.com/client9/misspell/cmd/misspell && cd -
+          make go-misspell
+          # Fix any misspelled words in .go and .md files
+          {code}
+
+          *Step 7 — Update sentinel file*
+          {code:bash}
+          echo "${TAG}" > .upstream-sync-tag && git add .upstream-sync-tag
+          {code}
+
+          *Step 8 — Commit and push*
+          {code:bash}
+          git add -A
+          git commit -m "chore: merge upstream ${TAG} into fork"
+          git push origin ${BRANCH}
+          {code}
+
+          *Step 9 — Open Pull Request*
+          {code:bash}
+          gh pr create \
+            --title "chore: sync with upstream terraform-provider-aws ${TAG}" \
+            --body "Merges upstream tag \`${TAG}\`. Conflict rules applied: .github/**, docs/**, website/** kept ours." \
+            --base "${BASE_BRANCH}" \
+            --head ${BRANCH} \
+            --label "upstream-sync"
+          {code}
+
+          ---
+
+          h3. Definition of Done
+
+          * [ ] Branch \`${BRANCH}\` exists in datafy-io/terraform-provider-datafyaws
+          * [ ] All upstream changes from *${TAG}* are present
+          * [ ] No conflict markers (\`<<<<<<<\`) remain in any file
+          * [ ] \`.github/**\`, \`docs/**\`, \`website/**\` match the fork (not upstream)
+          * [ ] \`.gitattributes\` contains \`merge=ours\` rules for the 3 paths
+          * [ ] \`.upstream-sync-tag\` contains \`${TAG}\`
+          * [ ] PR is open targeting \`${BASE_BRANCH}\` from \`${BRANCH}\`
+          * [ ] CI: \`build\` passes (\`make go-build\`)
+          * [ ] CI: \`unit-tests\` passes (\`go test ./internal/datafy ./internal/service/ec2 ./internal/provider\`)
+          * [ ] CI: \`importlint\` passes (\`impi --local . --scheme stdThirdPartyLocal ./...\`)
+          * [ ] CI: \`terraform_providers_schema\` passes (schema.json regenerated if changed)
+          * [ ] CI: \`markdown-lint\` passes (excluding docs/, website/docs/, CHANGELOG.md)
+          * [ ] CI: \`misspell\` passes (\`make go-misspell\`)
+
+          ---
+          _Created automatically by the check-upstream-tags GitHub Actions workflow._
+          JIRA_DESC
+
+          # Escape for use as a GitHub Actions output (newlines → %0A)
+          BODY=$(cat /tmp/jira_desc.txt)
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      # ── Create Jira issue via REST API (no deprecated actions) ──────────────
+      - name: Create Jira ticket
+        if: steps.compare.outputs.new_tag == 'true' && steps.jira_check.outputs.ticket_exists == 'false'
+        env:
+          TAG: ${{ steps.compare.outputs.tag }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}       # https://your-org.atlassian.net
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          DESCRIPTION: ${{ steps.jira_body.outputs.body }}
+        run: |
+          # Build the JSON payload in a temp file to avoid shell quoting issues
+          jq -n \
+            --arg project "${JIRA_PROJECT_KEY}" \
+            --arg summary "Sync terraform-provider-datafyaws with upstream ${TAG}" \
+            --arg desc    "${DESCRIPTION}" \
+            --arg account "712020:b65cccfb-8049-4abd-a02f-2e75aa0614d6" \
+            '{
+              fields: {
+                project:     { key: $project },
+                summary:     $summary,
+                issuetype:   { name: "Task" },
+                priority:    { name: "Medium" },
+                assignee:    { accountId: $account },
+                labels:      ["upstream-sync","terraform","automated","cloud-bot-agent"],
+                description: {
+                  type: "doc", version: 1,
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: $desc }]
+                  }]
+                }
+              }
+            }' > /tmp/jira_payload.json
+
+          curl -s -f -X POST \
+            "${JIRA_BASE_URL}/rest/api/3/issue" \
+            -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/jira_payload.json \
+            | jq -r '"Jira ticket created: " + .key'
