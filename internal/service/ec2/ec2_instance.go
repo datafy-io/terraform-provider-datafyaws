@@ -1320,7 +1320,7 @@ func resourceInstanceRead(ctx context.Context, rd *schema.ResourceData, meta any
 func resourceInstanceUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
-	dc := meta.DatafyClient(ctx)
+	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 
 	if d.HasChange("volume_tags") && !d.IsNewResource() {
 		volIDs, err := getInstanceVolIDs(ctx, conn, d.Id())
