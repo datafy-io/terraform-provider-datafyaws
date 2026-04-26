@@ -68,7 +68,7 @@ jobs:
       - uses: avto-dev/markdown-lint@v1
         with:
           args: '.'
-          ignore: './docs ./website/docs ./CHANGELOG.md ./internal/service/cloudformation/test-fixtures/examplecompany-exampleservice-exampleresource/docs'
+          ignore: './docs ./website/docs ./CHANGELOG.md ./internal/service/cloudformation/testdata/examplecompany-exampleservice-exampleresource/docs'
 
   misspell:
     name: Misspell
