@@ -59,7 +59,7 @@ func resourceEBSVolume() *schema.Resource {
 				})
 				if len(changes) > 0 {
 					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-					if datafyVolume, datafyErr := dc.GetVolume(diff.Id()); datafyErr == nil {
+					if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil {
 						if datafyVolume.IsManaged {
 							return fmt.Errorf("can't modify datafied EBS Volume (%s). Changed keys: (%s)", diff.Id(), strings.Join(changes, ","))
 						}
@@ -257,7 +257,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		d.Set(names.AttrThroughput, volume.Throughput)
 		d.Set(names.AttrType, volume.VolumeType)
 
-		setTagsOut(ctx, volume.Tags)
+		setTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
 
 		return diags
 	}
@@ -288,7 +288,7 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 
 		// if not found on aws, it may mean we datafied it and deleted the volume
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		if datafyVolume, datafyErr := dc.GetVolume(volumeId); datafyErr == nil {
+		if datafyVolume, err := dc.GetVolume(volumeId); err == nil {
 			// if we are managing this volume, just return the state as is after updating the tags
 			if datafyVolume.IsManaged {
 				dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(volumeId))
@@ -316,13 +316,13 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 					resourceEBSVolumeRead(ctx, d, meta)...,
 				)
 			}
-		} else if datafy.NotFound(datafyErr) {
-			log.Printf("[WARN] EBS Volume %s not found, removing from state", volumeId)
-			d.SetId("")
-			return diags
-		} else {
-			err = datafyErr
+		} else if !datafy.NotFound(err) {
+			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", volumeId, err)
 		}
+
+		log.Printf("[WARN] EBS Volume %s not found, removing from state", volumeId)
+		d.SetId("")
+		return diags
 	}
 
 	if err != nil {
@@ -345,12 +345,7 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 	d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
 	d.Set("outpost_arn", volume.OutpostArn)
 	d.Set(names.AttrSize, volume.Size)
-
-	// if the volume has a real snapshot id, take it
-	if aws.ToString(volume.SnapshotId) != "" {
-		d.Set(names.AttrSnapshotID, volume.SnapshotId)
-	}
-
+	d.Set(names.AttrSnapshotID, volume.SnapshotId)
 	d.Set(names.AttrThroughput, volume.Throughput)
 	d.Set(names.AttrType, volume.VolumeType)
 
@@ -368,7 +363,7 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
 		// and give back control to terraform
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		if datafyVolume, datafyErr := dc.GetVolume(d.Id()); datafyErr == nil {
+		if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
 			if datafyVolume.IsManaged {
 				return sdkdiag.AppendErrorf(diags, "can't modify datafied EBS Volume (%s)", d.Id())
 			}
@@ -382,8 +377,8 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 
 				return resourceEBSVolumeUpdate(ctx, d, meta)
 			}
-		} else if !datafy.NotFound(datafyErr) {
-			return sdkdiag.AppendErrorf(diags, "modifying EBS Volume (%s): %s", d.Id(), datafyErr)
+		} else if !datafy.NotFound(err) {
+			return sdkdiag.AppendErrorf(diags, "modifying EBS Volume (%s): %s", d.Id(), err)
 		}
 
 		input := ec2.ModifyVolumeInput{
@@ -441,7 +436,7 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta a
 	// the call must go via datafy api - that will also create the snapshot if needed.
 	// if it was replaced, set the new id to the state and give back control to terraform
 	dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-	if datafyVolume, datafyErr := dc.GetVolume(d.Id()); datafyErr == nil {
+	if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
 		if datafyVolume.IsManaged {
 			dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
 			if err != nil {
@@ -463,8 +458,8 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta a
 			d.SetId(datafyVolume.ReplacedBy)
 			return resourceEBSVolumeDelete(ctx, d, meta)
 		}
-	} else if !datafy.NotFound(datafyErr) {
-		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", d.Id(), datafyErr)
+	} else if !datafy.NotFound(err) {
+		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", d.Id(), err)
 	}
 
 	if d.Get("final_snapshot").(bool) {

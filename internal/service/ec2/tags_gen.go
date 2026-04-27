@@ -165,26 +165,26 @@ func setTagsOut(ctx context.Context, tags any) {
 }
 
 func updateVolumeTags(ctx context.Context, conn *ec2.Client, dc datafy.Client, identifier string, oldTagsMap, newTagsMap any, optFns ...func(*ec2.Options)) error {
-	volume, err := dc.GetVolume(identifier)
-	if err != nil {
-		return fmt.Errorf("can't find EBS volume (%s): %s", identifier, err)
-	}
-
-	if volume.IsManaged {
-		dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(identifier))
-		if err != nil {
-			return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
-		} else if len(dvo.Volumes) == 0 {
-			return fmt.Errorf("can't find datafy volumes of EBS volume (%s)", identifier)
-		}
-
-		for _, vid := range dvo.Volumes {
-			if err := updateTags(ctx, conn, aws.ToString(vid.VolumeId), oldTagsMap, newTagsMap, optFns...); err != nil {
-				return err
+	if datafyVolume, err := dc.GetVolume(identifier); err == nil {
+		if datafyVolume.IsManaged {
+			dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(identifier))
+			if err != nil {
+				return fmt.Errorf("can't find datafy volumes of EBS volume (%s): %s", identifier, err)
+			} else if len(dvo.Volumes) == 0 {
+				return fmt.Errorf("can't find datafy volumes of EBS volume (%s)", identifier)
 			}
+
+			for _, vid := range dvo.Volumes {
+				if err := updateTags(ctx, conn, aws.ToString(vid.VolumeId), oldTagsMap, newTagsMap, optFns...); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
-		return nil
+	} else if !datafy.NotFound(err) {
+		return err
 	}
+
 	return updateTags(ctx, conn, identifier, oldTagsMap, newTagsMap, optFns...)
 }
 
