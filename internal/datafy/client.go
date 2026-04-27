@@ -10,6 +10,15 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/version"
 )
 
+const DefaultUrl = "https://iac.datafy.io"
+
+type Client interface {
+	GetVolume(volumeId string) (*Volume, error)
+	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
+	AttachVolume(instanceId string, volumeId string, deviceName string) error
+	DetachVolume(instanceId string, volumeId string) error
+}
+
 type tags struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -46,14 +55,15 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-type Client struct {
-	config Config
+type ClientImpl struct {
+	url   string
+	token string
 }
 
-func NewDatafyClient(config *Config) *Client {
-	return &Client{
-		config: *config,
-	}
+var _ Client = (*ClientImpl)(nil)
+
+func NewDatafyClient(url string, token string) *ClientImpl {
+	return &ClientImpl{url: url, token: token}
 }
 
 func toError(response *http.Response) error {
@@ -69,7 +79,7 @@ func drain(response *http.Response) {
 	response.Body.Close()
 }
 
-func (c *Client) sendRequest(method, endpoint string, body any) (*http.Response, error) {
+func (c *ClientImpl) sendRequest(method, endpoint string, body any) (*http.Response, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -79,17 +89,17 @@ func (c *Client) sendRequest(method, endpoint string, body any) (*http.Response,
 		bodyReader = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("%s/%s", c.config.Url, endpoint), bodyReader)
+	req, err := http.NewRequest(method, fmt.Sprintf("%s/%s", c.url, endpoint), bodyReader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("User-Agent", fmt.Sprintf("terraform-provider-datafyaws/%s (datafy.io)", version.ProviderVersion))
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.config.Token))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.token))
 	client := &http.Client{}
 	return client.Do(req)
 }
 
-func (c *Client) GetVolume(volumeId string) (*Volume, error) {
+func (c *ClientImpl) GetVolume(volumeId string) (*Volume, error) {
 	resp, err := c.sendRequest(http.MethodGet, fmt.Sprintf("api/v1/aws/volumes/%s", volumeId), nil)
 	if err != nil {
 		return nil, err
@@ -111,29 +121,7 @@ func (c *Client) GetVolume(volumeId string) (*Volume, error) {
 	return nil, fmt.Errorf(resp.Status)
 }
 
-func (c *Client) GetSnapshot(snapshotId string) (*Snapshot, error) {
-	resp, err := c.sendRequest(http.MethodGet, fmt.Sprintf("api/v1/aws/snapshots/%s", snapshotId), nil)
-	if err != nil {
-		return nil, err
-	}
-	defer drain(resp)
-
-	if resp.StatusCode == http.StatusOK {
-		var out Snapshot
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			return nil, err
-		}
-		return &out, nil
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, NotFoundError
-	}
-
-	return nil, fmt.Errorf(resp.Status)
-}
-
-func (c *Client) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
+func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
 	tagsList := make([]tags, 0, len(tagz))
 	for k, v := range tagz {
 		tagsList = append(tagsList, tags{Key: k, Value: v})
@@ -167,7 +155,7 @@ func (c *Client) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZ
 	return nil, toError(resp)
 }
 
-func (c *Client) AttachVolume(instanceId string, volumeId string, deviceName string) error {
+func (c *ClientImpl) AttachVolume(instanceId string, volumeId string, deviceName string) error {
 	request := attachVolumeRequest{
 		InstanceId: instanceId,
 		DeviceName: deviceName,
@@ -186,7 +174,7 @@ func (c *Client) AttachVolume(instanceId string, volumeId string, deviceName str
 	return fmt.Errorf(resp.Status)
 }
 
-func (c *Client) DetachVolume(instanceId string, volumeId string) error {
+func (c *ClientImpl) DetachVolume(instanceId string, volumeId string) error {
 	request := detachVolumeRequest{
 		InstanceId: instanceId,
 	}

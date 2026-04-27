@@ -164,7 +164,7 @@ func setTagsOut(ctx context.Context, tags any) {
 	}
 }
 
-func updateVolumeTags(ctx context.Context, conn *ec2.Client, dc *datafy.Client, identifier string, oldTagsMap, newTagsMap any, optFns ...func(*ec2.Options)) error {
+func updateVolumeTags(ctx context.Context, conn *ec2.Client, dc datafy.Client, identifier string, oldTagsMap, newTagsMap any, optFns ...func(*ec2.Options)) error {
 	volume, err := dc.GetVolume(identifier)
 	if err != nil {
 		return fmt.Errorf("can't find EBS volume (%s): %s", identifier, err)

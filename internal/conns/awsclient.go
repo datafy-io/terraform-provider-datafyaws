@@ -48,11 +48,15 @@ type AWSClient struct {
 	stsRegion                 string // From provider configuration.
 	terraformVersion          string // From provider configuration.
 
-	datafyConfig *datafy.Config
+	datafyClient datafy.Client
 }
 
-func (c *AWSClient) DatafyClient(context.Context) *datafy.Client {
-	return datafy.NewDatafyClient(c.datafyConfig)
+func (c *AWSClient) DatafyClient(context.Context) datafy.Client {
+	return c.datafyClient
+}
+
+func (c *AWSClient) SetDatafyClient(client datafy.Client) {
+	c.datafyClient = client
 }
 
 func (c *AWSClient) SetServicePackages(_ context.Context, servicePackages map[string]ServicePackage) {
