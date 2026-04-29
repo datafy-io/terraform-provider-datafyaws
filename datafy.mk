@@ -15,7 +15,11 @@ datafy-rename-bin:
 
 datafy-test:
 	@echo "make: Running unit tests..."
-	$(GO_VER) test -count $(TEST_COUNT) $(DATAFY_MODIFIED_PACKAGES) $(TESTARGS) -timeout=5m
+	go test -count $(TEST_COUNT) $(DATAFY_MODIFIED_PACKAGES) $(TESTARGS) -timeout=5m
+
+datafy-testacc:
+	@echo "make: Running acceptance tests..."
+	TF_ACC=1 go test ./internal/service/ec2/... -v -count $(TEST_COUNT) -parallel $(ACCTEST_PARALLELISM) -run='TestAccDatafyEC2EBSVolume' $(TESTARGS) -timeout $(ACCTEST_TIMEOUT) -vet=off
 
 .PHONY: datafy-rebase
 datafy-rebase:

@@ -30,14 +30,25 @@ jobs:
         with:
           go-version-file: go.mod
       - name: test
-        run: go test ./internal/datafy ./internal/service/ec2 ./internal/provider
+        run: make datafy-test
+
+  acc-tests:
+    needs: [ build ]
+    runs-on: datafy-16-cores
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          aws-region: "us-west-2"
           role-to-assume: ${{ secrets.DEVELOPMENT_AWS_ROLE_ARN }}
       - name: testacc
-        run: make testacc TESTS=TestAccEC2EBSVolume PKG=ec2
+        run: make datafy-testacc
 
   importlint:
     name: Import lint
