@@ -47,6 +47,10 @@ jobs:
         with:
           aws-region: "us-west-2"
           role-to-assume: ${{ secrets.DEVELOPMENT_AWS_ROLE_ARN }}
+      - uses: hashicorp/setup-terraform@633666f66e0061ca3b725c73b2ec20cd13a8fdd1
+        with:
+          terraform_version: 1.8.3
+          terraform_wrapper: false
       - name: testacc
         run: make datafy-testacc
 
