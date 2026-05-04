@@ -32,6 +32,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/structure"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/envvar"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/provider"
@@ -92,6 +93,8 @@ var (
 // PreCheck(t) must be called before using this provider instance.
 var Provider *schema.Provider
 
+var DatafyClient *datafy.MockClient
+
 // testAccProviderConfigure ensures Provider is only configured once
 //
 // The PreCheck(t) function is invoked for every test and this prevents
@@ -114,7 +117,20 @@ func protoV5ProviderFactoriesInit(ctx context.Context, providerNames ...string) 
 
 	for _, name := range providerNames {
 		factories[name] = func() (tfprotov5.ProviderServer, error) {
-			providerServerFactory, _, err := provider.ProtoV5ProviderServerFactory(ctx)
+			providerServerFactory, provider, err := provider.ProtoV5ProviderServerFactory(ctx)
+
+			if oldF := provider.ConfigureContextFunc; oldF != nil {
+				provider.ConfigureContextFunc = func(ctx context.Context, data *schema.ResourceData) (interface{}, diag.Diagnostics) {
+					defer provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
+					return oldF(ctx, data)
+				}
+			}
+			if oldF := provider.ConfigureFunc; oldF != nil {
+				provider.ConfigureFunc = func(data *schema.ResourceData) (interface{}, error) {
+					defer provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
+					return oldF(data)
+				}
+			}
 
 			if err != nil {
 				return nil, err
@@ -253,6 +269,9 @@ func PreCheck(ctx context.Context, t *testing.T) {
 		if err := sdkdiag.DiagnosticsError(diags); err != nil {
 			t.Fatalf("configuring provider: %s", err)
 		}
+
+		DatafyClient = datafy.NewMockClient(Provider.Meta().(*conns.AWSClient).EC2Conn(), Provider.Meta().(*conns.AWSClient).EC2Client())
+		Provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
 	})
 }
 
@@ -1942,7 +1961,7 @@ data "aws_ami" "amzn-ami-minimal-hvm-ebs" {
 
   filter {
     name   = "name"
-    values = ["amzn-ami-minimal-hvm-*"]
+    values = ["amzn2-ami-minimal-hvm-*"]
   }
 
   filter {
