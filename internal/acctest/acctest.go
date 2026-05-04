@@ -57,6 +57,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/acctest/jsoncmp"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
+	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/dns"
 	"github.com/hashicorp/terraform-provider-aws/internal/envvar"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
@@ -138,7 +139,8 @@ var (
 //
 // PreCheck(t) must be called before using this provider instance.
 var (
-	Provider *schema.Provider = errs.Must(sdkv2.NewProvider(context.Background()))
+	Provider     *schema.Provider = errs.Must(sdkv2.NewProvider(context.Background()))
+	DatafyClient *datafy.MockClient
 )
 
 type ProviderFunc func() *schema.Provider
@@ -162,7 +164,26 @@ func protoV5ProviderFactoriesInit(ctx context.Context, providerNames ...string) 
 
 	for _, name := range providerNames {
 		factories[name] = func() (tfprotov5.ProviderServer, error) {
-			providerServerFactory, _, err := provider.ProtoV5ProviderServerFactory(ctx)
+			providerServerFactory, provider, err := provider.ProtoV5ProviderServerFactory(ctx)
+
+			if oldF := provider.ConfigureContextFunc; oldF != nil {
+				provider.ConfigureContextFunc = func(ctx context.Context, data *schema.ResourceData) (interface{}, diag.Diagnostics) {
+					defer provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
+					return oldF(ctx, data)
+				}
+			}
+			if oldF := provider.ConfigureProvider; oldF != nil {
+				provider.ConfigureProvider = func(ctx context.Context, request schema.ConfigureProviderRequest, response *schema.ConfigureProviderResponse) {
+					defer provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
+					oldF(ctx, request, response)
+				}
+			}
+			if oldF := provider.ConfigureFunc; oldF != nil {
+				provider.ConfigureFunc = func(data *schema.ResourceData) (interface{}, error) {
+					defer provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
+					return oldF(data)
+				}
+			}
 
 			if err != nil {
 				return nil, err
@@ -342,6 +363,9 @@ func PreCheck(ctx context.Context, t *testing.T) {
 		if err := sdkdiag.DiagnosticsError(diags); err != nil {
 			t.Fatalf("configuring provider: %s", err)
 		}
+
+		DatafyClient = datafy.NewMockClient(Provider.Meta().(*conns.AWSClient).EC2Client(ctx))
+		Provider.Meta().(*conns.AWSClient).SetDatafyClient(DatafyClient)
 	})
 }
 
