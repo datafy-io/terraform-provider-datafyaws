@@ -59,17 +59,18 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 		return nil, NotFoundError
 	}
 
+	var tags []types.Tag
+	for key, value := range tagz {
+		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+
 	volume := &types.Volume{
 		VolumeId:         aws.String(restoredVolume.VolumeId),
 		AvailabilityZone: aws.String(availabilityZone),
 		Iops:             aws.Int32(iops),
 		Throughput:       aws.Int32(throughput),
 		Size:             aws.Int32(restoredVolume.VolumeSizeGB),
-	}
-
-	var tags []types.Tag
-	for key, value := range tagz {
-		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
+		Tags:             tags,
 	}
 
 	for i := 0; i < 2; i++ {
@@ -177,4 +178,23 @@ func (m *MockClient) DetachVolume(instanceId string, volumeId string) error {
 	return ec2_sdkv2.NewVolumeAvailableWaiter(m.ec2Client).Wait(context.Background(), &ec2_sdkv2.DescribeVolumesInput{
 		VolumeIds: ids,
 	}, time.Minute)
+}
+
+func (m *MockClient) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if vol, exists := m.volumes[volumeId]; exists {
+		if sizeGb != nil {
+			vol.Size = sizeGb
+		}
+		if iops != nil {
+			vol.Iops = iops
+		}
+		if throughput != nil {
+			vol.Throughput = throughput
+		}
+	}
+
+	return nil
 }

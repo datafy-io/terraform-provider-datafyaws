@@ -285,7 +285,13 @@ func createDatafyReplacedByVolumeAttachment(ctx context.Context, v *ec2.Volume, 
 			*replacedBy = *v.VolumeId
 
 			acctest.DatafyClient.SetVolume(oldVolumeId, &datafy.Volume{
-				Volume:     &types.Volume{},
+				Volume: &types.Volume{
+					Size:       aws.Int32(int32(aws.Int64Value(v.Size))),
+					Iops:       aws.Int32(int32(aws.Int64Value(v.Iops))),
+					Throughput: aws.Int32(int32(aws.Int64Value(v.Throughput))),
+					VolumeType: types.VolumeType(aws.StringValue(v.VolumeType)),
+					Tags:       slices.ApplyToAll(v.Tags, func(t *ec2.Tag) types.Tag { return types.Tag{Key: t.Key, Value: t.Value} }),
+				},
 				HasSource:  false,
 				IsManaged:  false,
 				IsDatafied: false,
@@ -354,7 +360,13 @@ func createDatafyVolumeAttachment(ctx context.Context, v *ec2.Volume, size int) 
 
 			acctest.DatafyClient.AttachVolume(aws.StringValue(dvo.InstanceId), aws.StringValue(v.VolumeId), "")
 			acctest.DatafyClient.SetVolume(aws.StringValue(v.VolumeId), &datafy.Volume{
-				Volume:     &types.Volume{},
+				Volume: &types.Volume{
+					Size:       aws.Int32(int32(size)),
+					Iops:       aws.Int32(int32(aws.Int64Value(v.Iops))),
+					Throughput: aws.Int32(int32(aws.Int64Value(v.Throughput))),
+					VolumeType: types.VolumeType(aws.StringValue(v.VolumeType)),
+					Tags:       slices.ApplyToAll(v.Tags, func(t *ec2.Tag) types.Tag { return types.Tag{Key: t.Key, Value: t.Value} }),
+				},
 				HasSource:  false,
 				IsManaged:  true,
 				IsDatafied: true,
