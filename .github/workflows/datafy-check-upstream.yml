@@ -91,65 +91,61 @@ jobs:
           echo "[${{ matrix.branch }}] behind upstream: current=${{ steps.current.outputs.current }} latest=${{ steps.tags.outputs.latest }}"
           echo "Would POST to N8N_WEBHOOK_URL — webhook step is disabled."
 
-      # - name: Build webhook payload
-      #   if: steps.compare.outputs.comparison-result == '>'
-      #   id: payload
-      #   env:
-      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   run: |
-      #     set -euo pipefail
-      #     CUR="${{ steps.current.outputs.current }}"
-      #     MAJOR="${{ steps.current.outputs.major }}"
-      #     LATEST="${{ steps.tags.outputs.latest }}"
-      #     BRANCH="${{ matrix.branch }}"
-      #
-      #     RELEASE_JSON=$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${LATEST}" 2>/dev/null || echo '{}')
-      #     RELEASE_URL=$(echo "$RELEASE_JSON" | jq -r '.html_url // empty')
-      #     RELEASED_AT=$(echo "$RELEASE_JSON" | jq -r '.published_at // empty')
-      #     if [ -z "$RELEASE_URL" ]; then
-      #       RELEASE_URL="https://github.com/${UPSTREAM_REPO}/releases/tag/${LATEST}"
-      #     fi
-      #
-      #     RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      #
-      #     PAYLOAD=$(jq -n \
-      #       --arg event "upstream_release_available" \
-      #       --arg upstream_repo "$UPSTREAM_REPO" \
-      #       --arg fork_repo "$GITHUB_REPOSITORY" \
-      #       --arg release_branch "$BRANCH" \
-      #       --arg major "$MAJOR" \
-      #       --arg current "$CUR" \
-      #       --arg latest "$LATEST" \
-      #       --arg release_url "$RELEASE_URL" \
-      #       --arg released_at "$RELEASED_AT" \
-      #       --arg workflow_run_url "$RUN_URL" \
-      #       '{event:$event, upstream_repo:$upstream_repo, fork_repo:$fork_repo, release_branch:$release_branch, major:$major, current_version:$current, latest_version:$latest, release_url:$release_url, released_at:$released_at, workflow_run_url:$workflow_run_url}')
-      #
-      #     echo "$PAYLOAD" | jq .
-      #     {
-      #       echo "payload<<EOF"
-      #       echo "$PAYLOAD"
-      #       echo "EOF"
-      #     } >> "$GITHUB_OUTPUT"
-      #
-      # - name: Send n8n webhook
-      #   if: steps.compare.outputs.comparison-result == '>'
-      #   env:
-      #     N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
-      #     N8N_WEBHOOK_TOKEN: ${{ secrets.N8N_WEBHOOK_TOKEN }}
-      #     PAYLOAD: ${{ steps.payload.outputs.payload }}
-      #   run: |
-      #     set -euo pipefail
-      #     if [ -z "${N8N_WEBHOOK_URL:-}" ]; then
-      #       echo "::error::N8N_WEBHOOK_URL secret is not set"
-      #       exit 1
-      #     fi
-      #     curl --fail-with-body -sS -X POST \
-      #       -H 'Content-Type: application/json' \
-      #       -H "X-Webhook-Token: ${N8N_WEBHOOK_TOKEN}" \
-      #       -d "$PAYLOAD" \
-      #       "$N8N_WEBHOOK_URL"
-      #     echo "Webhook delivered for ${{ matrix.branch }}."
+      - name: Build webhook payload
+        if: steps.compare.outputs.comparison-result == '>'
+        id: payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CUR="${{ steps.current.outputs.current }}"
+          MAJOR="${{ steps.current.outputs.major }}"
+          LATEST="${{ steps.tags.outputs.latest }}"
+          BRANCH="${{ matrix.branch }}"
+      
+          RELEASE_JSON=$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${LATEST}" 2>/dev/null || echo '{}')
+          RELEASE_URL=$(echo "$RELEASE_JSON" | jq -r '.html_url // empty')
+          RELEASED_AT=$(echo "$RELEASE_JSON" | jq -r '.published_at // empty')
+          if [ -z "$RELEASE_URL" ]; then
+            RELEASE_URL="https://github.com/${UPSTREAM_REPO}/releases/tag/${LATEST}"
+          fi
+      
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      
+          PAYLOAD=$(jq -n \
+            --arg event "upstream_release_available" \
+            --arg upstream_repo "$UPSTREAM_REPO" \
+            --arg fork_repo "$GITHUB_REPOSITORY" \
+            --arg release_branch "$BRANCH" \
+            --arg major "$MAJOR" \
+            --arg current "$CUR" \
+            --arg latest "$LATEST" \
+            --arg release_url "$RELEASE_URL" \
+            --arg released_at "$RELEASED_AT" \
+            --arg workflow_run_url "$RUN_URL" \
+            '{event:$event, upstream_repo:$upstream_repo, fork_repo:$fork_repo, release_branch:$release_branch, major:$major, current_version:$current, latest_version:$latest, release_url:$release_url, released_at:$released_at, workflow_run_url:$workflow_run_url}')
+      
+          echo "$PAYLOAD" | jq .
+          {
+            echo "payload<<EOF"
+            echo "$PAYLOAD"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      
+      - name: Send n8n webhook
+        if: steps.compare.outputs.comparison-result == '>'
+        env:
+          N8N_WEBHOOK_BASE_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_WEBHOOK_TOKEN: ${{ secrets.N8N_WEBHOOK_TOKEN }}
+          PAYLOAD: ${{ steps.payload.outputs.payload }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -H "X-Webhook-Token: ${N8N_WEBHOOK_TOKEN}" \
+            -d "$PAYLOAD" \
+            "${N8N_WEBHOOK_BASE_URL}upstream-release"
+          echo "Webhook delivered for ${{ matrix.branch }}."
 
       - name: Summary
         if: always()
