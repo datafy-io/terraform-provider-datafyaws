@@ -140,7 +140,7 @@ jobs:
           PAYLOAD: ${{ steps.payload.outputs.payload }}
         run: |
           set -euo pipefail
-          curl --fail-with-body -sS -X POST \
+          curl --fail-with-body -sS --max-time 30 -X POST \
             -H 'Content-Type: application/json' \
             -H "X-Webhook-Token: ${N8N_WEBHOOK_TOKEN}" \
             -d "$PAYLOAD" \
