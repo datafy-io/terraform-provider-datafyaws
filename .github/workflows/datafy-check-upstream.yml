@@ -160,5 +160,4 @@ jobs:
             echo "- Current (\`.aws-version\`): \`${{ steps.current.outputs.current }}\`"
             echo "- Latest upstream v${{ steps.current.outputs.major }}.*: \`${{ steps.tags.outputs.latest }}\`"
             echo "- Comparison (latest vs current): \`${{ steps.compare.outputs.comparison-result || 'n/a' }}\`"
-            echo "- Bot branch (\`${{ steps.existing.outputs.bot_branch || 'n/a' }}\`) already exists: \`${{ steps.existing.outputs.exists || 'n/a' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
