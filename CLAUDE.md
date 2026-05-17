@@ -144,107 +144,107 @@ in this repository — re-read it whenever you're unsure.
     just changed the code, so you are the one who triages the first
     round of CI feedback.
 
-    ### a. Wait
+### a. Wait
 
-    Use the GitHub CLI's built-in wait, which polls cheaply and
-    respects rate limits:
+Use the GitHub CLI's built-in wait, which polls cheaply and
+respects rate limits:
 
-    ```bash
-    # Hard cap the wait at 45 minutes so a stuck check doesn't burn
-    # your whole turn / budget allowance.
-    timeout 2700 gh pr checks "$PR_URL" --watch --interval 30 || true
-    gh pr checks "$PR_URL"   # final snapshot, regardless of how watch exited
-    ```
+```bash
+# Hard cap the wait at 45 minutes so a stuck check doesn't burn
+# your whole turn / budget allowance.
+timeout 2700 gh pr checks "$PR_URL" --watch --interval 30 || true
+gh pr checks "$PR_URL"   # final snapshot, regardless of how watch exited
+```
 
-    ### b. If all checks passed
+### b. If all checks passed
 
-    Convert the PR from DRAFT to ready-for-review:
+Convert the PR from DRAFT to ready-for-review:
 
-    ```bash
-    gh pr ready "$PR_URL"
-    ```
+```bash
+gh pr ready "$PR_URL"
+```
 
-    Output `PR_URL=<url>` and exit. You're done.
+Output `PR_URL=<url>` and exit. You're done.
 
-    ### c. If some checks failed
+### c. If some checks failed
 
-    For each failing check, fetch its logs:
+For each failing check, fetch its logs:
 
-    ```bash
-    gh pr checks "$PR_URL"                  # find run IDs
-    gh run view <run-id> --log-failed       # only the failed-step output
-    ```
+```bash
+gh pr checks "$PR_URL"                  # find run IDs
+gh run view <run-id> --log-failed       # only the failed-step output
+```
 
-    Now decide whether the failure is something you can fix HERE, or
-    needs a human:
+Now decide whether the failure is something you can fix HERE, or
+needs a human:
 
-    **You MAY fix (and should):**
+**You MAY fix (and should):**
 
-    - `markdown-lint` failures on files Datafy owns (`agents.md`,
-      `CLAUDE.md`, `.ai/skills/*`, anything under `internal/datafy/`).
-      Run `markdownlint` locally, fix the violations, commit as a
-      fixup to the appropriate Datafy commit, push.
-    - Files we forgot to add to the rebase delete list — upstream
-      introduced a new top-level file that conflicts with Datafy
-      policy or markdownlint. Add `rm -f <file>` to the post-rebase
-      cleanup (step 6 of this workflow), apply it, fixup-fold into
-      `Datafy: init repo`, push. Also note it in the PR body so the
-      next iteration of the skill / `make datafy-rebase` permanently
-      handles it.
-    - Whitespace / formatting issues in Datafy-owned code that
-      `gofmt`, `goimports`, or `make fmt` can fix mechanically.
+- `markdown-lint` failures on files Datafy owns (`agents.md`,
+  `CLAUDE.md`, `.ai/skills/*`, anything under `internal/datafy/`).
+  Run `markdownlint` locally, fix the violations, commit as a
+  fixup to the appropriate Datafy commit, push.
+- Files we forgot to add to the rebase delete list — upstream
+  introduced a new top-level file that conflicts with Datafy
+  policy or markdownlint. Add `rm -f <file>` to the post-rebase
+  cleanup (step 6 of this workflow), apply it, fixup-fold into
+  `Datafy: init repo`, push. Also note it in the PR body so the
+  next iteration of the skill / `make datafy-rebase` permanently
+  handles it.
+- Whitespace / formatting issues in Datafy-owned code that
+  `gofmt`, `goimports`, or `make fmt` can fix mechanically.
 
-    **You MUST NOT fix (these need a human):**
+**You MUST NOT fix (these need a human):**
 
-    - `unit-tests` / `acc-tests` failures in **upstream** code paths
-      (`internal/service/*` other than `ec2/`). These are hashicorp's
-      responsibility — "fixing" them by editing tests is exactly the
-      refusal condition in this CLAUDE.md.
-    - `build` failures from genuine upstream API changes the rebase
-      surfaces. The rebase is doing its job by exposing them; a human
-      decides whether Datafy needs to adapt or wait for upstream.
-    - `terraform_providers_schema` regressions — schema diffs usually
-      mean an upstream resource changed semantics. Human triage.
-    - Anything that requires editing files outside `internal/datafy/`,
-      `internal/service/ec2/`, `internal/provider/`, `agents.md`,
-      `CLAUDE.md`, `.ai/`, or the bot-managed root files
-      (`.aws-version`, `CODEOWNERS`, `datafy.mk`).
+- `unit-tests` / `acc-tests` failures in **upstream** code paths
+  (`internal/service/*` other than `ec2/`). These are hashicorp's
+  responsibility — "fixing" them by editing tests is exactly the
+  refusal condition in this CLAUDE.md.
+- `build` failures from genuine upstream API changes the rebase
+  surfaces. The rebase is doing its job by exposing them; a human
+  decides whether Datafy needs to adapt or wait for upstream.
+- `terraform_providers_schema` regressions — schema diffs usually
+  mean an upstream resource changed semantics. Human triage.
+- Anything that requires editing files outside `internal/datafy/`,
+  `internal/service/ec2/`, `internal/provider/`, `agents.md`,
+  `CLAUDE.md`, `.ai/`, or the bot-managed root files
+  (`.aws-version`, `CODEOWNERS`, `datafy.mk`).
 
-    ### d. If you fixed something, loop
+### d. If you fixed something, loop
 
-    Push the fix to the bot branch (`git push` — same branch, no
-    force-push needed unless you amended). The push triggers a new CI
-    run. Go back to step 12.a and wait again.
+Push the fix to the bot branch (`git push` — same branch, no
+force-push needed unless you amended). The push triggers a new CI
+run. Go back to step 12.a and wait again.
 
-    **Maximum 3 fix iterations.** If CI is still red after 3 cycles,
-    stop — what's left is something you can't reliably fix and a human
-    needs to look.
+**Maximum 3 fix iterations.** If CI is still red after 3 cycles,
+stop — what's left is something you can't reliably fix and a human
+needs to look.
 
-    ### e. If you cannot or will not fix (or hit the 3-iteration cap)
+### e. If you cannot or will not fix (or hit the 3-iteration cap)
 
-    Stay DRAFT. Add a PR comment summarizing what's failing and why
-    you stopped:
+Stay DRAFT. Add a PR comment summarizing what's failing and why
+you stopped:
 
-    ```bash
-    gh pr comment "$PR_URL" --body "$(cat <<EOF
-    ## CI failures requiring human triage
+```bash
+gh pr comment "$PR_URL" --body "$(cat <<EOF
+## CI failures requiring human triage
 
-    The rebase bot ran $N fix iteration(s) and could not get all
-    checks green. Failures left:
+The rebase bot ran $N fix iteration(s) and could not get all
+checks green. Failures left:
 
-    | Check | Status | Reason bot didn't fix |
-    |---|---|---|
-    | <name> | FAIL | <one-line why this was out of bot remit> |
-    | ...    | ...  | ... |
+| Check | Status | Reason bot didn't fix |
+|---|---|---|
+| <name> | FAIL | <one-line why this was out of bot remit> |
+| ...    | ...  | ... |
 
-    Logs:
-    - <check-name>: <link to gh actions run>
-    - ...
-    EOF
-    )"
-    ```
+Logs:
+- <check-name>: <link to gh actions run>
+- ...
+EOF
+)"
+```
 
-    Output `PR_URL=<url>` and exit. The PR exists; it just needs a human.
+Output `PR_URL=<url>` and exit. The PR exists; it just needs a human.
 
 ## Pull Request
 
