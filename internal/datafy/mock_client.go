@@ -106,6 +106,52 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return restoredVolume, nil
 }
 
+func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*DatafiedVolume, error) {
+	sourceVolumeId := fmt.Sprintf("vol-%016x", time.Now().UnixNano())
+
+	tags := []types.Tag{
+		{Key: aws.String(managedByTagKey), Value: aws.String(managedByTagValue)},
+		{Key: aws.String(sourceVolumeTagKey), Value: aws.String(sourceVolumeId)},
+		{Key: aws.String(VolumeSourceTagKey), Value: aws.String(VolumeSourceNative)},
+	}
+	for key, value := range tagz {
+		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+
+	var targetIds []string
+	for range 2 {
+		out, err := m.ec2Client.CreateVolume(context.Background(), &ec2.CreateVolumeInput{
+			AvailabilityZone: aws.String(availabilityZone),
+			Size:             aws.Int32(int32(diskSize)),
+			VolumeType:       types.VolumeTypeGp3,
+			Iops:             iops,
+			Throughput:       throughput,
+			TagSpecifications: []types.TagSpecification{
+				{ResourceType: types.ResourceTypeVolume, Tags: tags},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		targetIds = append(targetIds, aws.ToString(out.VolumeId))
+	}
+
+	m.SetVolume(sourceVolumeId, &Volume{
+		Volume: &types.Volume{
+			VolumeId:         aws.String(sourceVolumeId),
+			AvailabilityZone: aws.String(availabilityZone),
+			Size:             aws.Int32(int32(diskSize)),
+			Iops:             iops,
+			Throughput:       throughput,
+		},
+		IsManaged:  true,
+		IsDatafied: true,
+		HasSource:  false,
+	})
+
+	return &DatafiedVolume{VolumeId: sourceVolumeId, TargetVolumeIds: targetIds, DiskSize: diskSize}, nil
+}
+
 func (m *MockClient) AttachVolume(instanceId string, volumeId string, _ string) error {
 	dvo, err := m.ec2Client.DescribeVolumes(context.Background(), DescribeDatafiedVolumesInput(volumeId))
 	if err != nil {

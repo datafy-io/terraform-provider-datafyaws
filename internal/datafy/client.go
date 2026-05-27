@@ -15,6 +15,7 @@ const DefaultUrl = "https://iac.datafy.io"
 type Client interface {
 	GetVolume(volumeId string) (*Volume, error)
 	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
+	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*DatafiedVolume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
 	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error
@@ -40,6 +41,28 @@ type createFromSnapshotsVolumeProperties struct {
 type createFromSnapshotsRequest struct {
 	Source           createFromSnapshotsSource           `json:"source"`
 	VolumeProperties createFromSnapshotsVolumeProperties `json:"volumeProperties"`
+}
+
+type createDatafiedVolumeProperties struct {
+	AvailabilityZone string `json:"availabilityZone"`
+	DiskSize         int64  `json:"diskSize"`
+	VolumeIops       *int32 `json:"volumeIops,omitempty"`
+	VolumeThroughput *int32 `json:"volumeThroughput,omitempty"`
+	Encrypted        *bool  `json:"encrypted,omitempty"`
+	KmsKeyId         string `json:"kmsKeyId,omitempty"`
+	Tags             []tags `json:"tags,omitempty"`
+}
+
+type createDatafiedVolumeRequest struct {
+	VolumeProperties createDatafiedVolumeProperties `json:"volumeProperties"`
+}
+
+type createDatafiedVolumeResponse struct {
+	VolumeId         string   `json:"volumeId"`
+	TargetVolumeIds  []string `json:"targetVolumeIds"`
+	VolumeProperties struct {
+		DiskSize int64 `json:"diskSize"`
+	} `json:"volumeProperties"`
 }
 
 type attachVolumeRequest struct {
@@ -157,6 +180,44 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 			return nil, err
 		}
 		return &out, nil
+	}
+
+	return nil, toError(resp)
+}
+
+func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*DatafiedVolume, error) {
+	tagsList := make([]tags, 0, len(tagz))
+	for k, v := range tagz {
+		tagsList = append(tagsList, tags{Key: k, Value: v})
+	}
+	request := createDatafiedVolumeRequest{
+		VolumeProperties: createDatafiedVolumeProperties{
+			AvailabilityZone: availabilityZone,
+			DiskSize:         diskSize,
+			VolumeIops:       iops,
+			VolumeThroughput: throughput,
+			Encrypted:        encrypted,
+			KmsKeyId:         kmsKeyId,
+			Tags:             tagsList,
+		},
+	}
+
+	resp, err := c.sendRequest(http.MethodPost, "api/v1/aws/volumes/create-datafied-volume", request)
+	if err != nil {
+		return nil, err
+	}
+	defer drain(resp)
+
+	if resp.StatusCode == http.StatusOK {
+		var out createDatafiedVolumeResponse
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return nil, err
+		}
+		return &DatafiedVolume{
+			VolumeId:        out.VolumeId,
+			TargetVolumeIds: out.TargetVolumeIds,
+			DiskSize:        out.VolumeProperties.DiskSize,
+		}, nil
 	}
 
 	return nil, toError(resp)

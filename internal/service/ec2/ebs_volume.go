@@ -167,6 +167,19 @@ func resourceEBSVolume() *schema.Resource {
 	}
 }
 
+func volumeTagsFromInput(input *ec2.CreateVolumeInput) map[string]string {
+	tags := make(map[string]string)
+	for _, ts := range input.TagSpecifications {
+		if ts.ResourceType != awstypes.ResourceTypeVolume {
+			continue
+		}
+		for _, t := range ts.Tags {
+			tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
+		}
+	}
+	return tags
+}
+
 func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	c := meta.(*conns.AWSClient)
@@ -229,23 +242,12 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		}
 	}
 
+	volumeTags := volumeTagsFromInput(&input)
+
 	if snapshotId := aws.ToString(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		restoredVolume, err := dc.CreateVolumeFromSnapshot(snapshotId,
-			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput),
-			func() map[string]string {
-				tags := make(map[string]string)
-				for _, ts := range input.TagSpecifications {
-					if ts.ResourceType != awstypes.ResourceTypeVolume {
-						continue
-					}
-					for _, t := range ts.Tags {
-						tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
-					}
-				}
-				return tags
-			}(),
-		)
+			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput), volumeTags)
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating EBS Volume from datafy snapshot (%s): %s", snapshotId, err)
 		}
@@ -279,6 +281,42 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 			outputArn := strings.ReplaceAll(*volume.OutpostArn, *volume.VolumeId, d.Id())
 			return &outputArn
 		}())
+
+		return diags
+	}
+
+	if volumeTags[datafy.VolumeSourceTagKey] == datafy.VolumeSourceNative {
+		// the marker tag selects this flow; Datafy applies it to the target volumes itself,
+		// so drop it from the forwarded user tags to avoid a duplicate tag key.
+		delete(volumeTags, datafy.VolumeSourceTagKey)
+
+		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
+			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId), volumeTags)
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
+		}
+		d.SetId(datafied.VolumeId)
+
+		dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
+		} else if len(dvo.Volumes) == 0 {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
+		}
+
+		for _, volume := range dvo.Volumes {
+			datafyVolumeId := aws.ToString(volume.VolumeId)
+			if _, err := waitVolumeCreated(ctx, conn, datafyVolumeId, d.Timeout(schema.TimeoutCreate)); err != nil {
+				return sdkdiag.AppendErrorf(diags, "waiting for datafy volume (%s) of EBS Volume (%s) create: %s", datafyVolumeId, d.Id(), err)
+			}
+		}
+
+		volume := dvo.Volumes[0]
+		if err := resourceEBSVolumeFlatten(ctx, c, &volume, d); err != nil {
+			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
+		}
+		d.Set(names.AttrSize, datafied.DiskSize)
 
 		return diags
 	}

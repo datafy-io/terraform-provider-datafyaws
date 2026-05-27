@@ -18,6 +18,11 @@ const (
 
 	restoredFromSnapshotIdTagKey = "datafy:restored-from-snapshot:id"
 	datafySnapshotIdTagKey       = "datafy:snapshot:id"
+
+	// VolumeSourceTagKey / VolumeSourceNative mark an aws_ebs_volume as a request for a
+	// native datafied volume, routing its creation through the Datafy API instead of AWS.
+	VolumeSourceTagKey = "Datafy-VolumeSource"
+	VolumeSourceNative = "native"
 )
 
 func DescribeDatafiedVolumesInput(sourceVolumeId string) *ec2.DescribeVolumesInput {
