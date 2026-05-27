@@ -89,6 +89,13 @@ func resourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			"autoscaling_native": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				ForceNew:    true,
+				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
+			},
 			names.AttrAvailabilityZone: {
 				Type:     schema.TypeString,
 				Required: true,
@@ -285,11 +292,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		return diags
 	}
 
-	if volumeTags[datafy.VolumeSourceTagKey] == datafy.VolumeSourceNative {
-		// the marker tag selects this flow; Datafy applies it to the target volumes itself,
-		// so drop it from the forwarded user tags to avoid a duplicate tag key.
-		delete(volumeTags, datafy.VolumeSourceTagKey)
-
+	if d.Get("autoscaling_native").(bool) {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
 			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId), volumeTags)

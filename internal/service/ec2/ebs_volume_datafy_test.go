@@ -562,12 +562,12 @@ func testAccDatafyEBSVolumeConfig_native(rName string) string {
 		acctest.ConfigAvailableAZsNoOptIn(),
 		fmt.Sprintf(`
 resource "aws_ebs_volume" "test" {
-  availability_zone = data.aws_availability_zones.available.names[0]
-  size              = 100
+  availability_zone  = data.aws_availability_zones.available.names[0]
+  size               = 100
+  autoscaling_native = true
 
   tags = {
-    Name                  = %[1]q
-    "Datafy-VolumeSource" = "native"
+    Name = %[1]q
   }
 }
 `, rName))
