@@ -144,7 +144,7 @@ jobs:
             -H 'Content-Type: application/json' \
             -H "X-Webhook-Token: ${N8N_WEBHOOK_TOKEN}" \
             -d "$PAYLOAD" \
-            "${N8N_WEBHOOK_BASE_URL}/webhook/upstream-release"
+            "${N8N_WEBHOOK_BASE_URL}"
           echo "Webhook delivered for ${{ matrix.branch }}."
           
       - name: Summary
