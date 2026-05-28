@@ -136,15 +136,20 @@ jobs:
         if: steps.compare.outputs.comparison-result == '>'
         env:
           N8N_WEBHOOK_BASE_URL: ${{ secrets.N8N_WEBHOOK_URL }}
-          N8N_WEBHOOK_TOKEN: ${{ secrets.N8N_WEBHOOK_TOKEN }}
+          N8N_WEBHOOK_USER:     ${{ secrets.N8N_WEBHOOK_USER }}
+          N8N_WEBHOOK_TOKEN:    ${{ secrets.N8N_WEBHOOK_TOKEN }}
           PAYLOAD: ${{ steps.payload.outputs.payload }}
         run: |
           set -euo pipefail
-          curl --fail-with-body -sS --max-time 30 -X POST \
+          if [ -z "${N8N_WEBHOOK_BASE_URL:-}" ] || [ -z "${N8N_WEBHOOK_USER:-}" ] || [ -z "${N8N_WEBHOOK_TOKEN:-}" ]; then
+            echo "::error::Missing one of N8N_WEBHOOK_URL / N8N_WEBHOOK_USER / N8N_WEBHOOK_TOKEN repo secrets"
+            exit 1
+          fi
+          curl --fail-with-body -sS --max-time 30 --connect-timeout 5 -X POST \
             -H 'Content-Type: application/json' \
-            -H "X-Webhook-Token: ${N8N_WEBHOOK_TOKEN}" \
+            --user "${N8N_WEBHOOK_USER}:${N8N_WEBHOOK_TOKEN}" \
             -d "$PAYLOAD" \
-            "${N8N_WEBHOOK_BASE_URL}"
+            "${N8N_WEBHOOK_BASE_URL}/webhook/upstream-release"
           echo "Webhook delivered for ${{ matrix.branch }}."
           
       - name: Summary
