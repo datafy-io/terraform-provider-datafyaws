@@ -144,7 +144,7 @@ in this repository — re-read it whenever you're unsure.
     just changed the code, so you are the one who triages the first
     round of CI feedback.
 
-    ### a. Wait
+    **a. Wait**
 
     Use the GitHub CLI's built-in wait, which polls cheaply and
     respects rate limits:
@@ -156,7 +156,7 @@ in this repository — re-read it whenever you're unsure.
     gh pr checks "$PR_URL"   # final snapshot, regardless of how watch exited
     ```
 
-    ### b. If all checks passed
+    **b. If all checks passed**
 
     Convert the PR from DRAFT to ready-for-review:
 
@@ -166,7 +166,7 @@ in this repository — re-read it whenever you're unsure.
 
     Output `PR_URL=<url>` and exit. You're done.
 
-    ### c. If some checks failed
+    **c. If some checks failed**
 
     For each failing check, fetch its logs:
 
@@ -206,7 +206,7 @@ in this repository — re-read it whenever you're unsure.
     - `terraform_providers_schema` regressions — schema diffs usually
       mean an upstream resource changed semantics. Human triage.
 
-    ### d. If you fixed something, loop
+    **d. If you fixed something, loop**
 
     Push the fix to the bot branch (`git push` — same branch, no
     force-push needed unless you amended). The push triggers a new CI
@@ -216,7 +216,7 @@ in this repository — re-read it whenever you're unsure.
     stop — what's left is something you can't reliably fix and a human
     needs to look.
 
-    ### e. If you cannot or will not fix (or hit the 3-iteration cap)
+    **e. If you cannot or will not fix (or hit the 3-iteration cap)**
 
     Stay DRAFT. Add a PR comment summarizing what's failing and why
     you stopped:
