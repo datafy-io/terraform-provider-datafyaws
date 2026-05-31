@@ -3,32 +3,46 @@
 
 # Welcome
 
-The Terraform AWS Provider is the work of thousands of contributors, and is maintained by a small team within HashiCorp. This site contains extensive instructions about how to contribute and how the AWS provider works.
+The **Terraform DatafyAWS Provider** is a fork of the official [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws) maintained by [Datafy](https://datafy.io). It includes all the functionality of the standard AWS provider with added support for using [Datafy](https://datafy.io) when managing AWS resources with Terraform.
 
-!!! tip
-    This documentation is intended for Terraform AWS Provider code developers. Typical operators writing and applying Terraform configurations do not need to read or understand this material.
+Because this provider is fully compatible with the upstream AWS provider, the [official Terraform AWS Provider documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) applies here as well — refer to it for resource and data source reference material.
 
-!!! tip
-    New Resources and Data Sources need to be implemented using [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2) and [terraform-plugin-framework](https://github.com/hashicorp/terraform-plugin-framework).
-    Preferred tooling for the same would be our scaffolding tool, [skaff](skaff.md).
+## Configuration
 
-## Contribute
+The `provider "datafyaws"` block requires **all the same configuration** as the [`provider "aws"` block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#provider-configuration). The only addition is `datafy_token`, which can also be set via the `DATAFY_TOKEN` environment variable.
 
-Please follow the following steps to ensure your contribution goes smoothly.
+_To migrate, duplicate your existing `provider "aws"` block as `provider "datafyaws"` and add `datafy_token`._
 
-### 1. Configure Development Environment
+## Resources Supported by Datafy
 
-Install Terraform and Go. Clone the repository, compile the provider, and set up testing. Refer to [Configure Development Environment](development-environment.md).
+Add `provider = datafyaws` to resources of the following types to enable Datafy support:
 
-### 2. Debug Code
+- `aws_ebs_volume`
+- `aws_volume_attachment`
 
-If you are looking to _create or enhance code_, such as a new resource or adding an argument to an existing resource, skip to the next step.
+## Example Usage
 
-Finding and fixing errors in the AWS Provider can be difficult. We have a [debugging guide](debugging.md) to help you get started.
+```hcl
+terraform {
+  required_providers {
+    datafyaws = {
+      source  = "datafy-io/datafyaws"
+      version = "~> 6.0"
+    }
+  }
+}
 
-### 3. Change Code
+provider "aws" {
+  region     = "us-east-1"
+  access_key = "YOUR_ACCESS_KEY"
+  secret_key = "YOUR_SECRET_KEY"
+}
 
-Follow the guide for your contribution type and refer to the Development Reference materials as needed for additional details about [provider design](provider-design.md), expected [naming conventions](naming.md), guidance for [error handling](error-handling.md), etc.
+# All the same configuration as provider "aws", plus datafy_token
+provider "datafyaws" {
+  region     = "us-east-1"
+  access_key = "YOUR_ACCESS_KEY"
+  secret_key = "YOUR_SECRET_KEY"
 
 | Contribution Guide | Description |
 |--------------------|-------------|
@@ -43,34 +57,22 @@ Follow the guide for your contribution type and refer to the Development Referen
 | [Enhanced Region Support](enhanced-region-support.md) | Most AWS resources are Regional – they are created and exist in a single AWS Region. By default Regional resources have a top-level `region` argument that allows the Region to be configured. |
 | [End User Documentation](end-user-documentation.md)| The provider documentation is displayed on the [Terraform Registry](https://registry.terraform.io/providers/hashicorp/aws/latest) and is sourced and refreshed from the provider repository during the release process. |
 
-### 4. Write Tests
+resource "aws_ebs_volume" "example" {
+  provider = datafyaws
 
-We require all changes to be covered by [acceptance tests](running-and-writing-acceptance-tests.md) and/or [unit tests](unit-tests.md), depending on the situation. In the context of the Terraform AWS Provider, _acceptance tests_ are tests of interactions with AWS, such as creating, reading information about, and destroying AWS resources. In contrast, _unit tests_ test functionality wholly within the provider itself, such as function tests.
+  availability_zone = "us-east-1a"
+  size              = 40
 
-If you are unable to pay for acceptance tests for your contributions, mention this in your pull request. We will happily accept "best effort" acceptance tests implementations and run them for you on our side. Your PR may take longer to merge, but this is not a blocker for contributions.
+  tags = {
+    Name = "example-volume"
+  }
+}
 
-### 5. Continuous Integration
+resource "aws_volume_attachment" "example" {
+  provider = datafyaws
 
-When submitting a pull request, you'll notice that we run several automated processes on your proposed change. Some of these processes are tests to ensure your contribution aligns with our standards. While we strive for accuracy, some users may find these tests confusing. Check out [Continuous Integration](continuous-integration.md) for additional clarity.
-
-For contributors working on GitHub Actions workflows or experiencing slow CI builds, see [GitHub Actions Caching Strategy](github-actions-caching.md) for details on how caching is optimized for this large codebase.
-
-### 6. Update the Changelog
-
-HashiCorp's open-source projects have always maintained a user-friendly, readable CHANGELOG.md that allows users to tell at a glance whether a release should have any effect on them, and to gauge the risk of an upgrade. Not all changes require an entry in the changelog, refer to our [Changelog Process](changelog-process.md) for details about when and how to create a changelog.
-
-### 7. Create a Pull Request
-
-When your contribution is ready, Create a [Pull Request](raising-a-pull-request.md) in the AWS provider repository.
-
-Pull requests are usually triaged within a few days of creation and are prioritized based on community reactions. Our [Prioritization Guides](prioritization.md) provide more details about the process.
-
-## Submit an Issue
-
-In addition to contributions, we welcome [bug reports](https://github.com/hashicorp/terraform-provider-aws/issues/new?assignees=&labels=&template=Bug_Report.md) and [feature requests](https://github.com/hashicorp/terraform-provider-aws/issues/new?assignees=&labels=enhancement&template=Feature_Request.md).
-
-## Join the Contributors Slack
-
-For frequent contributors, it's useful to join the contributors Slack channel hosted within the HashiCorp Slack workspace. This Slack channel is used to discuss topics such as general contribution questions, suggestions for improving the contribution process, coordinating on pair programming sessions, etc. The channel is not intended as a place to request status updates on open issues or pull requests. For prioritization questions, instead refer to the [prioritization guide](prioritization.md).
-
-To request to join, fill out the [request form](https://forms.gle/Gf9ZAmUYXuzafkct6) and allow time for the request to be reviewed and processed.
+  device_name = "/dev/sdh"
+  volume_id   = aws_ebs_volume.example.id
+  instance_id = "i-1234567890abcdef0"
+}
+```
