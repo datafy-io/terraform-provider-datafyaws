@@ -13,12 +13,6 @@ type RestoredVolume struct {
 	VolumeSizeGB int32  `json:"volumeSizeGB"`
 }
 
-type DatafiedVolume struct {
-	VolumeId        string
-	TargetVolumeIds []string
-	DiskSize        int64
-}
-
 type Volume struct {
 	*types.Volume
 

@@ -174,19 +174,6 @@ func resourceEBSVolume() *schema.Resource {
 	}
 }
 
-func volumeTagsFromInput(input *ec2.CreateVolumeInput) map[string]string {
-	tags := make(map[string]string)
-	for _, ts := range input.TagSpecifications {
-		if ts.ResourceType != awstypes.ResourceTypeVolume {
-			continue
-		}
-		for _, t := range ts.Tags {
-			tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
-		}
-	}
-	return tags
-}
-
 func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	c := meta.(*conns.AWSClient)
@@ -249,7 +236,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		}
 	}
 
-	volumeTags := volumeTagsFromInput(&input)
+	volumeTags := datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume)
 
 	if snapshotId := aws.ToString(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
@@ -299,7 +286,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
 		}
-		d.SetId(datafied.VolumeId)
+		d.SetId(aws.ToString(datafied.VolumeId))
 
 		dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
 		if err != nil {
@@ -319,7 +306,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		if err := resourceEBSVolumeFlatten(ctx, c, &volume, d); err != nil {
 			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
 		}
-		d.Set(names.AttrSize, datafied.DiskSize)
+		d.Set(names.AttrSize, aws.ToInt32(input.Size))
 
 		return diags
 	}

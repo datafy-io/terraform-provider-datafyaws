@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/terraform-provider-aws/version"
 )
 
@@ -15,7 +17,7 @@ const DefaultUrl = "https://iac.datafy.io"
 type Client interface {
 	GetVolume(volumeId string) (*Volume, error)
 	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
-	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*DatafiedVolume, error)
+	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*Volume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
 	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error
@@ -58,11 +60,7 @@ type createDatafiedVolumeRequest struct {
 }
 
 type createDatafiedVolumeResponse struct {
-	VolumeId         string   `json:"volumeId"`
-	TargetVolumeIds  []string `json:"targetVolumeIds"`
-	VolumeProperties struct {
-		DiskSize int64 `json:"diskSize"`
-	} `json:"volumeProperties"`
+	VolumeId string `json:"volumeId"`
 }
 
 type attachVolumeRequest struct {
@@ -185,7 +183,7 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return nil, toError(resp)
 }
 
-func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*DatafiedVolume, error) {
+func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*Volume, error) {
 	tagsList := make([]tags, 0, len(tagz))
 	for k, v := range tagz {
 		tagsList = append(tagsList, tags{Key: k, Value: v})
@@ -213,10 +211,10 @@ func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int6
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			return nil, err
 		}
-		return &DatafiedVolume{
-			VolumeId:        out.VolumeId,
-			TargetVolumeIds: out.TargetVolumeIds,
-			DiskSize:        out.VolumeProperties.DiskSize,
+		return &Volume{
+			Volume:     &types.Volume{VolumeId: aws.String(out.VolumeId)},
+			IsManaged:  true,
+			IsDatafied: true,
 		}, nil
 	}
 
