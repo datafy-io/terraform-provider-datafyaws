@@ -4,7 +4,6 @@ on:
   schedule:
     - cron: '0 7 * * 1-5'
   workflow_dispatch:
-  push:
 
 permissions:
   contents: read
@@ -131,40 +130,6 @@ jobs:
             echo "$PAYLOAD"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-      
-      - name: Debug n8n webhook connectivity
-        if: steps.compare.outputs.comparison-result == '>'
-        continue-on-error: true
-        env:
-          N8N_WEBHOOK_BASE_URL: ${{ secrets.N8N_WEBHOOK_URL }}
-        run: |
-          set +e
-          HOST=$(echo "${N8N_WEBHOOK_BASE_URL}" | sed -E 's|^https?://([^/]+).*|\1|')
-
-          echo "=== Runner egress IP (what n8n's WAF/SG would see as source) ==="
-          curl -s --max-time 5 https://api.ipify.org; echo
-
-          echo
-          echo "=== DNS resolution of ${HOST} ==="
-          getent hosts "$HOST" 2>/dev/null || nslookup "$HOST" 2>&1 | head -10
-
-          echo
-          echo "=== TCP connect test to ${HOST}:443 (5s timeout) ==="
-          timeout 5 bash -c "</dev/tcp/${HOST}/443" \
-            && echo "✅ TCP connect OK" \
-            || echo "❌ TCP connect FAILED — endpoint is reachable from your laptop but not from this runner; likely IP allowlist on the ALB/WAF"
-
-          echo
-          echo "=== Trace route to ${HOST} (where does the packet die?) ==="
-          (command -v mtr >/dev/null && mtr -wbzc 3 "$HOST") \
-            || (command -v traceroute >/dev/null && traceroute -n -w 2 -m 15 "$HOST") \
-            || echo "(neither mtr nor traceroute installed)"
-
-          echo
-          echo "=== Full curl -v to https://${HOST}/ (HTTPS handshake details) ==="
-          curl -v --max-time 10 --connect-timeout 5 "https://${HOST}/" 2>&1 | tail -25
-          echo
-          echo "=== End debug ==="
 
       - name: Send n8n webhook
         if: steps.compare.outputs.comparison-result == '>'
