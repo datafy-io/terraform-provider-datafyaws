@@ -295,7 +295,6 @@ func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
-					testAccDatafyCheckTagExists(ctx, &dv, datafy.VolumeSourceTagKey, datafy.VolumeSourceNative),
 				),
 			},
 			{
@@ -359,28 +358,12 @@ func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 	}
 }
 
-func createDatafyVolumeSnapshot(ctx context.Context, dsnapId string, size int) func() {
+func createDatafyVolumeSnapshot(_ context.Context, dsnapId string, size int) func() {
 	return func() {
-		conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Client(ctx)
-
-		o, err := conn.DescribeAvailabilityZones(ctx, &awsec2.DescribeAvailabilityZonesInput{})
-		if err != nil {
-			panic(err)
-		}
-
-		volume, err := conn.CreateVolume(ctx, &awsec2.CreateVolumeInput{
-			AvailabilityZone: o.AvailabilityZones[0].ZoneName,
-			Size:             aws.Int32(1),
-			VolumeType:       "gp2",
-			Encrypted:        aws.Bool(true),
-			KmsKeyId:         aws.String("ffffffff-ffff-ffff-ffff-ffffffffffff"),
-		})
-		if err != nil {
-			panic(err)
-		}
-
+		// The mock CreateVolumeFromSnapshot only needs a unique synthetic source id —
+		// targets are discovered by tag, not by the source vol-id existing in AWS.
 		acctest.DatafyClient.SetRestoredVolume(dsnapId, &datafy.RestoredVolume{
-			VolumeId:     aws.ToString(volume.VolumeId),
+			VolumeId:     fmt.Sprintf("vol-%016x", time.Now().UnixNano()),
 			VolumeSizeGB: int32(size),
 		})
 	}

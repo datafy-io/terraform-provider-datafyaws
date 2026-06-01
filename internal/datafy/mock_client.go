@@ -112,7 +112,7 @@ func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int6
 	tags := []types.Tag{
 		{Key: aws.String(managedByTagKey), Value: aws.String(managedByTagValue)},
 		{Key: aws.String(sourceVolumeTagKey), Value: aws.String(sourceVolumeId)},
-		{Key: aws.String(VolumeSourceTagKey), Value: aws.String(VolumeSourceNative)},
+		{Key: aws.String("Datafy-VolumeSource"), Value: aws.String("native")},
 	}
 	for key, value := range tagz {
 		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})

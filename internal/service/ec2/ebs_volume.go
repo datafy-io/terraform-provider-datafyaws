@@ -236,12 +236,11 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		}
 	}
 
-	volumeTags := datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume)
-
 	if snapshotId := aws.ToString(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		restoredVolume, err := dc.CreateVolumeFromSnapshot(snapshotId,
-			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput), volumeTags)
+			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput),
+			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating EBS Volume from datafy snapshot (%s): %s", snapshotId, err)
 		}
@@ -282,7 +281,8 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 	if d.Get("autoscaling_native").(bool) {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
-			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId), volumeTags)
+			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId),
+			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
 		}

@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/terraform-provider-aws/version"
 )
 
@@ -57,10 +55,6 @@ type createDatafiedVolumeProperties struct {
 
 type createDatafiedVolumeRequest struct {
 	VolumeProperties createDatafiedVolumeProperties `json:"volumeProperties"`
-}
-
-type createDatafiedVolumeResponse struct {
-	VolumeId string `json:"volumeId"`
 }
 
 type attachVolumeRequest struct {
@@ -207,15 +201,11 @@ func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int6
 	defer drain(resp)
 
 	if resp.StatusCode == http.StatusOK {
-		var out createDatafiedVolumeResponse
+		var out Volume
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			return nil, err
 		}
-		return &Volume{
-			Volume:     &types.Volume{VolumeId: aws.String(out.VolumeId)},
-			IsManaged:  true,
-			IsDatafied: true,
-		}, nil
+		return &out, nil
 	}
 
 	return nil, toError(resp)
