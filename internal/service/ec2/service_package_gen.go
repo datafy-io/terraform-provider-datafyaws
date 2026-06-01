@@ -1119,8 +1119,9 @@ func (p *servicePackage) SDKResources(ctx context.Context) []*inttypes.ServicePa
 			Tags: unique.Make(inttypes.ServicePackageResourceTags{
 				IdentifierAttribute: names.AttrID,
 			}),
-			Region:   inttypes.ResourceRegionDefault(),
-			Identity: inttypes.RegionalSingleParameterIdentity(names.AttrID),
+			Region: inttypes.ResourceRegionDefault(),
+			// Disable identity since we replace the volume id upon undatafying to support resource replacement without forcing a new resource.
+			//Identity: inttypes.RegionalSingleParameterIdentity(names.AttrID),
 			Import: inttypes.SDKv2Import{
 				WrappedImport: true,
 			},
@@ -1783,11 +1784,12 @@ func (p *servicePackage) SDKResources(ctx context.Context) []*inttypes.ServicePa
 			TypeName: "aws_volume_attachment",
 			Name:     "EBS Volume Attachment",
 			Region:   inttypes.ResourceRegionDefault(),
-			Identity: inttypes.RegionalParameterizedIdentity([]inttypes.IdentityAttribute{
-				inttypes.StringIdentityAttribute(names.AttrDeviceName, true),
-				inttypes.StringIdentityAttribute("volume_id", true),
-				inttypes.StringIdentityAttribute(names.AttrInstanceID, true),
-			}),
+			// Disable identity since we replace the volume id upon undatafying to support resource replacement without forcing a new resource.
+			//Identity: inttypes.RegionalParameterizedIdentity([]inttypes.IdentityAttribute{
+			// 	inttypes.StringIdentityAttribute(names.AttrDeviceName, true),
+			// 	inttypes.StringIdentityAttribute("volume_id", true),
+			// 	inttypes.StringIdentityAttribute(names.AttrInstanceID, true),
+			//}),
 			Import: inttypes.SDKv2Import{
 				WrappedImport: true,
 				ImportID:      volumeAttachmentImportID{},
