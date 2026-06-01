@@ -39,3 +39,12 @@ func RemoveDatafyTags(tags []*ec2.Tag) []*ec2.Tag {
 		return !(strings.HasPrefix(key, tagsPrefix) || (key == managedByTagKey && aws.StringValue(t.Value) == managedByTagValue))
 	})
 }
+
+func GetRestoredFromSnapshotId(tags []*ec2.Tag) string {
+	for _, t := range tags {
+		if aws.StringValue(t.Key) == restoredFromSnapshotIdTagKey {
+			return aws.StringValue(t.Value)
+		}
+	}
+	return ""
+}
