@@ -285,6 +285,17 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 		// if not found on aws, it may mean we datafied it and deleted the volume
 		dc := meta.(*conns.AWSClient).DatafyClient()
 		if datafyVolume, err := dc.GetVolume(volumeId); err == nil {
+			// if the volume was replaced (new source due to undatafy), it means the new
+			// volume is now the source volume, and we need to set the "new" values from aws
+			if datafyVolume.ReplacedBy != "" {
+				d.SetId(datafyVolume.ReplacedBy)
+
+				return append(
+					sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeId),
+					resourceEBSVolumeRead(ctx, d, meta)...,
+				)
+			}
+
 			// if we are managing this volume, just return the state as is after updating the tags
 			if datafyVolume.IsManaged {
 				dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(volumeId))
@@ -301,21 +312,6 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 				SetTagsOut(ctx, datafy.RemoveDatafyTags(dvo.Volumes[0].Tags))
 				return diags
 			}
-
-			// if the volume was replaced (new source due to undatafy), it means the new
-			// volume is now the source volume, and we need to set the "new" values from aws
-			if datafyVolume.ReplacedBy != "" {
-				d.SetId(datafyVolume.ReplacedBy)
-				// check if we have the snapshot id this volume was taken from
-				if dsnapId := datafyVolume.GetRestoredFromSnapshotId(); dsnapId != "" {
-					d.Set("snapshot_id", dsnapId)
-				}
-
-				return append(
-					sdkdiag.AppendWarningf(diags, "new EBS Volume (%s) has been created to replace the undatafied EBS Volume (%s)", datafyVolume.ReplacedBy, volumeId),
-					resourceEBSVolumeRead(ctx, d, meta)...,
-				)
-			}
 		} else if !datafy.NotFound(err) {
 			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", volumeId, err)
 		}
@@ -327,6 +323,11 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
+	}
+
+	snapshotId := volume.SnapshotId
+	if dsnapId := datafy.GetRestoredFromSnapshotId(volume.Tags); dsnapId != "" {
+		snapshotId = aws.String(dsnapId)
 	}
 
 	arn := arn.ARN{
@@ -344,11 +345,11 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta int
 	d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
 	d.Set("outpost_arn", volume.OutpostArn)
 	d.Set("size", volume.Size)
-	d.Set("snapshot_id", volume.SnapshotId)
+	d.Set("snapshot_id", snapshotId)
 	d.Set("throughput", volume.Throughput)
 	d.Set("type", volume.VolumeType)
 
-	SetTagsOut(ctx, volume.Tags)
+	SetTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
 
 	return diags
 }

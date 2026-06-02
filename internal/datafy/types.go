@@ -22,15 +22,6 @@ type Volume struct {
 	ReplacedBy string
 }
 
-func (v *Volume) GetRestoredFromSnapshotId() string {
-	for _, t := range v.Tags {
-		if aws.ToString(t.Key) == restoredFromSnapshotIdTagKey {
-			return aws.ToString(t.Value)
-		}
-	}
-	return ""
-}
-
 func (v *Volume) UnmarshalJSON(data []byte) error {
 	iac := struct {
 		VolumeId string `json:"volumeId"`
