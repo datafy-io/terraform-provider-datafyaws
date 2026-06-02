@@ -363,7 +363,7 @@ func createDatafyVolumeSnapshot(_ context.Context, dsnapId string, size int) fun
 		// The mock CreateVolumeFromSnapshot only needs a unique synthetic source id —
 		// targets are discovered by tag, not by the source vol-id existing in AWS.
 		acctest.DatafyClient.SetRestoredVolume(dsnapId, &datafy.RestoredVolume{
-			VolumeId:     fmt.Sprintf("vol-%016x", time.Now().UnixNano()),
+			VolumeId:     fmt.Sprintf("vol-%017x", time.Now().UnixNano()),
 			VolumeSizeGB: int32(size),
 		})
 	}
@@ -444,7 +444,7 @@ func testAccDatafyCheckVolumeExists(ctx context.Context, n string, dv *[]awstype
 	}
 }
 
-func testAccDatafyCheckTagExists(ctx context.Context, dv *[]awstypes.Volume, key, value string) resource.TestCheckFunc {
+func testAccDatafyCheckTagExists(_ context.Context, dv *[]awstypes.Volume, key, value string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		for _, v := range *dv {
 			if !slices.ContainsFunc(v.Tags, func(t awstypes.Tag) bool {

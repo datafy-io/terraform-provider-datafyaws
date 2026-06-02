@@ -107,7 +107,7 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 }
 
 func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*Volume, error) {
-	sourceVolumeId := fmt.Sprintf("vol-%016x", time.Now().UnixNano())
+	sourceVolumeId := fmt.Sprintf("vol-%017x", time.Now().UnixNano())
 
 	tags := []types.Tag{
 		{Key: aws.String(managedByTagKey), Value: aws.String(managedByTagValue)},
