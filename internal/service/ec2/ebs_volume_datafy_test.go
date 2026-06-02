@@ -216,6 +216,52 @@ func TestAccDatafyEC2EBSVolume_restoreFromSnapshot(t *testing.T) {
 	})
 }
 
+func TestAccDatafyEC2EBSVolume_restoredFromSnapshotTag(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v awstypes.Volume
+	resourceName := "aws_ebs_volume.test"
+	snapId := sdkacctest.RandomWithPrefix("dsnap")
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeConfig_basic,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				PreConfig:    addRestoredFromSnapshotTag(ctx, &v, snapId),
+				RefreshState: true,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, names.AttrSnapshotID, snapId),
+				),
+			},
+		},
+	})
+}
+
+func addRestoredFromSnapshotTag(ctx context.Context, v *awstypes.Volume, snapId string) func() {
+	return func() {
+		conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Client(ctx)
+		if _, err := conn.CreateTags(ctx, &awsec2.CreateTagsInput{
+			Resources: []string{aws.ToString(v.VolumeId)},
+			Tags: []awstypes.Tag{
+				{
+					Key:   aws.String("datafy:restored-from-snapshot:id"),
+					Value: aws.String(snapId),
+				},
+			},
+		}); err != nil {
+			panic(err)
+		}
+	}
+}
+
 func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 	return func() {
 		err := func() error {
