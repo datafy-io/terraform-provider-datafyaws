@@ -40,3 +40,12 @@ func RemoveDatafyTags(tags []types.Tag) []types.Tag {
 		return strings.HasPrefix(key, tagsPrefix) || (key == managedByTagKey && aws.ToString(t.Value) == managedByTagValue)
 	})
 }
+
+func GetRestoredFromSnapshotId(tags []types.Tag) string {
+	for _, t := range tags {
+		if aws.ToString(t.Key) == restoredFromSnapshotIdTagKey {
+			return aws.ToString(t.Value)
+		}
+	}
+	return ""
+}
