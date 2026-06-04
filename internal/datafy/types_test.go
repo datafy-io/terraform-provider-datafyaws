@@ -3,7 +3,52 @@ package datafy
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
+
+func TestGetDatafySnapshotId(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []types.Tag
+		expected string
+	}{
+		{
+			name:     "no tags",
+			tags:     []types.Tag{},
+			expected: "",
+		},
+		{
+			name:     "unrelated tags only",
+			tags:     []types.Tag{{Key: aws.String("Name"), Value: aws.String("my-snap")}},
+			expected: "",
+		},
+		{
+			name: "snapshot group tag present",
+			tags: []types.Tag{
+				{Key: aws.String("Name"), Value: aws.String("my-snap")},
+				{Key: aws.String(datafySnapshotIdTagKey), Value: aws.String("dsnap-abc123")},
+			},
+			expected: "dsnap-abc123",
+		},
+		{
+			name: "snapshot group tag only",
+			tags: []types.Tag{
+				{Key: aws.String(datafySnapshotIdTagKey), Value: aws.String("dsnap-xyz789")},
+			},
+			expected: "dsnap-xyz789",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetDatafySnapshotId(tt.tags)
+			if got != tt.expected {
+				t.Errorf("GetDatafySnapshotId() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
 
 func TestVolumeUnmarshalJSON(t *testing.T) {
 	tests := []struct {

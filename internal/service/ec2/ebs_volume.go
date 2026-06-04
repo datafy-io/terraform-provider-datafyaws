@@ -62,6 +62,12 @@ func resourceEBSVolume() *schema.Resource {
 
 		CustomizeDiff: customdiff.Sequence(
 			resourceEBSVolumeCustomizeDiff,
+			func(_ context.Context, diff *schema.ResourceDiff, _ any) error {
+				if tags, ok := diff.Get(names.AttrTags).(map[string]any); ok {
+					return datafy.ValidateNoDatafyTags(tags)
+				}
+				return nil
+			},
 			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
 				changes := slices.DeleteFunc(diff.GetChangedKeysPrefix(""), func(s string) bool {
 					return strings.HasPrefix(s, "tags.") || slices.Contains(datafiedModifiableAttrs, s)
@@ -210,6 +216,17 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 
 	if value, ok := d.GetOk("volume_initialization_rate"); ok {
 		input.VolumeInitializationRate = aws.Int32(int32(value.(int)))
+	}
+
+	if snapshotId := aws.ToString(input.SnapshotId); snapshotId != "" && !strings.HasPrefix(snapshotId, "dsnap-") {
+		snapshot, err := findSnapshotByID(ctx, conn, snapshotId)
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "describing snapshot (%s): %s", snapshotId, err)
+		}
+		if dsnapId := datafy.GetDatafySnapshotId(snapshot.Tags); dsnapId != "" {
+			return sdkdiag.AppendErrorf(diags, "cannot create EBS Volume from snapshot (%s): this snapshot belongs to Datafy snapshot %q. "+
+				"To restore from this snapshot, use the Datafy snapshot ID (e.g. snapshot_id = %q) instead.", snapshotId, dsnapId, dsnapId)
+		}
 	}
 
 	if snapshotId := aws.ToString(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {

@@ -216,6 +216,68 @@ func TestAccDatafyEC2EBSVolume_restoreFromSnapshot(t *testing.T) {
 	})
 }
 
+func TestAccDatafyEC2EBSVolume_rejectDatafyTagOnCreate(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccDatafyEBSVolumeConfig_withDatafyTag(rName),
+				ExpectError: regexache.MustCompile(`tag key "datafy:.*" uses the reserved "datafy:" prefix`),
+			},
+		},
+	})
+}
+
+func TestAccDatafyEC2EBSVolume_rejectDatafyTagOnUpdate(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v awstypes.Volume
+	resourceName := "aws_ebs_volume.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeConfig_tags1("Name", rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, t, resourceName, &v),
+				),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_withDatafyTag(rName),
+				ExpectError: regexache.MustCompile(`tag key "datafy:.*" uses the reserved "datafy:" prefix`),
+			},
+		},
+	})
+}
+
+func TestAccDatafyEC2EBSVolume_rejectSnapshotInGroup(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccDatafyEBSVolumeConfig_snapshotInGroup(rName),
+				ExpectError: regexache.MustCompile(`cannot create EBS Volume from snapshot .* this snapshot belongs to Datafy snapshot`),
+			},
+		},
+	})
+}
+
 func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 	return func() {
 		err := func() error {
@@ -422,4 +484,48 @@ resource "aws_ebs_volume" "test" {
   }
 }
 `, rName, dsnapId))
+}
+
+func testAccDatafyEBSVolumeConfig_withDatafyTag(rName string) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone = data.aws_availability_zones.available.names[0]
+  size              = 1
+
+  tags = {
+    Name         = %[1]q
+    "datafy:foo" = "bar"
+  }
+}
+`, rName))
+}
+
+func testAccDatafyEBSVolumeConfig_snapshotInGroup(rName string) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "source" {
+  availability_zone = data.aws_availability_zones.available.names[0]
+  size              = 1
+}
+
+resource "aws_ebs_snapshot" "test" {
+  volume_id = aws_ebs_volume.source.id
+
+  tags = {
+    "datafy:snapshot:id" = "dsnap-test-group"
+  }
+}
+
+resource "aws_ebs_volume" "test" {
+  availability_zone = data.aws_availability_zones.available.names[0]
+  snapshot_id       = aws_ebs_snapshot.test.id
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName))
 }
