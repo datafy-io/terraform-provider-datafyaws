@@ -15,9 +15,6 @@ const (
 	managedByTagValue  = "Datafy.io"
 	sourceVolumeTagKey = "datafy:source-volume:id"
 	tagsPrefix         = "datafy:"
-	// systemTagsPrefix marks the PascalCase tag family the Datafy backend stamps onto
-	// target volumes (e.g. Datafy-VolumeSource, Datafy-HeadersState, Datafy-LogicalSizeGiB).
-	systemTagsPrefix = "Datafy-"
 
 	restoredFromSnapshotIdTagKey = "datafy:restored-from-snapshot:id"
 	datafySnapshotIdTagKey       = "datafy:snapshot:id"
@@ -56,7 +53,6 @@ func RemoveDatafyTags(tags []types.Tag) []types.Tag {
 	return slices.DeleteFunc(tags, func(t types.Tag) bool {
 		key := aws.ToString(t.Key)
 		return strings.HasPrefix(key, tagsPrefix) ||
-			strings.HasPrefix(key, systemTagsPrefix) ||
 			(key == managedByTagKey && aws.ToString(t.Value) == managedByTagValue)
 	})
 }
