@@ -194,7 +194,7 @@ func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int6
 		},
 	}
 
-	resp, err := c.sendRequest(http.MethodPost, "api/v1/aws/volumes/create-datafied-volume", request)
+	resp, err := c.sendRequest(http.MethodPost, "api/v1/aws/volumes/create-autoscaling-volume", request)
 	if err != nil {
 		return nil, err
 	}
