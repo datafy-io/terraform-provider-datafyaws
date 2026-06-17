@@ -358,14 +358,51 @@ func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 	}
 }
 
-func createDatafyVolumeSnapshot(_ context.Context, dsnapId string, size int) func() {
+func createDatafyVolumeSnapshot(ctx context.Context, dsnapId string, size int) func() {
 	return func() {
-		// The mock CreateVolumeFromSnapshot only needs a unique synthetic source id —
-		// targets are discovered by tag, not by the source vol-id existing in AWS.
-		acctest.DatafyClient.SetRestoredVolume(dsnapId, &datafy.RestoredVolume{
-			VolumeId:     fmt.Sprintf("vol-%017x", time.Now().UnixNano()),
-			VolumeSizeGB: int32(size),
-		})
+		// AWS rejects synthetic vol-ids in DescribeVolumes with
+		// InvalidParameterValue, not InvalidVolume.NotFound. The provider's
+		// Read path only treats the latter as "missing → fall back to Datafy".
+		// Harvest a real AWS-issued vol-id by creating a tiny volume and then
+		// deleting it; the deleted vol-id will surface as NotFound during the
+		// post-apply refresh, which is exactly what we want.
+		err := func() error {
+			conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Client(ctx)
+
+			azs, err := conn.DescribeAvailabilityZones(ctx, &awsec2.DescribeAvailabilityZonesInput{})
+			if err != nil || len(azs.AvailabilityZones) == 0 {
+				return fmt.Errorf("could not list AZs: %w", err)
+			}
+			az := aws.ToString(azs.AvailabilityZones[0].ZoneName)
+
+			cvo, err := conn.CreateVolume(ctx, &awsec2.CreateVolumeInput{
+				AvailabilityZone: aws.String(az),
+				Size:             aws.Int32(1),
+				VolumeType:       awstypes.VolumeTypeGp2,
+			})
+			if err != nil {
+				return err
+			}
+			sourceId := aws.ToString(cvo.VolumeId)
+
+			if _, err := conn.DeleteVolume(ctx, &awsec2.DeleteVolumeInput{VolumeId: &sourceId}); err != nil {
+				return err
+			}
+			if err := awsec2.NewVolumeDeletedWaiter(conn).Wait(ctx, &awsec2.DescribeVolumesInput{
+				VolumeIds: []string{sourceId},
+			}, time.Minute); err != nil {
+				return err
+			}
+
+			acctest.DatafyClient.SetRestoredVolume(dsnapId, &datafy.RestoredVolume{
+				VolumeId:     sourceId,
+				VolumeSizeGB: int32(size),
+			})
+			return nil
+		}()
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 
