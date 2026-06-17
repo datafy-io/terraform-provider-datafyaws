@@ -107,7 +107,23 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 }
 
 func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*Volume, error) {
-	sourceVolumeId := fmt.Sprintf("vol-%017x", time.Now().UnixNano())
+	// AWS rejects synthetic vol-ids in DescribeVolumes with
+	// InvalidParameterValue, not InvalidVolume.NotFound. The provider's Read
+	// path only treats the latter as "missing → fall back to Datafy". Harvest
+	// a real AWS-issued vol-id by creating a tiny volume and immediately
+	// deleting it; refresh-after-create then surfaces it as NotFound.
+	probe, err := m.ec2Client.CreateVolume(context.Background(), &ec2.CreateVolumeInput{
+		AvailabilityZone: aws.String(availabilityZone),
+		Size:             aws.Int32(1),
+		VolumeType:       types.VolumeTypeGp2,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sourceVolumeId := aws.ToString(probe.VolumeId)
+	if _, err := m.ec2Client.DeleteVolume(context.Background(), &ec2.DeleteVolumeInput{VolumeId: &sourceVolumeId}); err != nil {
+		return nil, err
+	}
 
 	tags := []types.Tag{
 		{Key: aws.String(managedByTagKey), Value: aws.String(managedByTagValue)},
