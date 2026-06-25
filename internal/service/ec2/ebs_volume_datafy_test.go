@@ -278,6 +278,32 @@ func TestAccDatafyEC2EBSVolume_rejectSnapshotInGroup(t *testing.T) {
 	})
 }
 
+func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
+	ctx := acctest.Context(t)
+	var dv []awstypes.Volume
+	resourceName := "aws_ebs_volume.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_native(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
 func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 	return func() {
 		err := func() error {
@@ -334,28 +360,49 @@ func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 
 func createDatafyVolumeSnapshot(ctx context.Context, dsnapId string, size int) func() {
 	return func() {
-		conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Client(ctx)
+		// AWS rejects synthetic vol-ids in DescribeVolumes with
+		// InvalidParameterValue, not InvalidVolume.NotFound. The provider's
+		// Read path only treats the latter as "missing → fall back to Datafy".
+		// Harvest a real AWS-issued vol-id by creating a tiny volume and then
+		// deleting it; the deleted vol-id will surface as NotFound during the
+		// post-apply refresh, which is exactly what we want.
+		err := func() error {
+			conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Client(ctx)
 
-		o, err := conn.DescribeAvailabilityZones(ctx, &awsec2.DescribeAvailabilityZonesInput{})
+			azs, err := conn.DescribeAvailabilityZones(ctx, &awsec2.DescribeAvailabilityZonesInput{})
+			if err != nil || len(azs.AvailabilityZones) == 0 {
+				return fmt.Errorf("could not list AZs: %w", err)
+			}
+			az := aws.ToString(azs.AvailabilityZones[0].ZoneName)
+
+			cvo, err := conn.CreateVolume(ctx, &awsec2.CreateVolumeInput{
+				AvailabilityZone: aws.String(az),
+				Size:             aws.Int32(1),
+				VolumeType:       awstypes.VolumeTypeGp2,
+			})
+			if err != nil {
+				return err
+			}
+			sourceId := aws.ToString(cvo.VolumeId)
+
+			if _, err := conn.DeleteVolume(ctx, &awsec2.DeleteVolumeInput{VolumeId: &sourceId}); err != nil {
+				return err
+			}
+			if err := awsec2.NewVolumeDeletedWaiter(conn).Wait(ctx, &awsec2.DescribeVolumesInput{
+				VolumeIds: []string{sourceId},
+			}, time.Minute); err != nil {
+				return err
+			}
+
+			acctest.DatafyClient.SetRestoredVolume(dsnapId, &datafy.RestoredVolume{
+				VolumeId:     sourceId,
+				VolumeSizeGB: int32(size),
+			})
+			return nil
+		}()
 		if err != nil {
 			panic(err)
 		}
-
-		volume, err := conn.CreateVolume(ctx, &awsec2.CreateVolumeInput{
-			AvailabilityZone: o.AvailabilityZones[0].ZoneName,
-			Size:             aws.Int32(1),
-			VolumeType:       "gp2",
-			Encrypted:        aws.Bool(true),
-			KmsKeyId:         aws.String("ffffffff-ffff-ffff-ffff-ffffffffffff"),
-		})
-		if err != nil {
-			panic(err)
-		}
-
-		acctest.DatafyClient.SetRestoredVolume(dsnapId, &datafy.RestoredVolume{
-			VolumeId:     aws.ToString(volume.VolumeId),
-			VolumeSizeGB: int32(size),
-		})
 	}
 }
 
@@ -434,7 +481,7 @@ func testAccDatafyCheckVolumeExists(ctx context.Context, n string, dv *[]awstype
 	}
 }
 
-func testAccDatafyCheckTagExists(ctx context.Context, dv *[]awstypes.Volume, key, value string) resource.TestCheckFunc {
+func testAccDatafyCheckTagExists(_ context.Context, dv *[]awstypes.Volume, key, value string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		for _, v := range *dv {
 			if !slices.ContainsFunc(v.Tags, func(t awstypes.Tag) bool {
@@ -522,6 +569,22 @@ resource "aws_ebs_snapshot" "test" {
 resource "aws_ebs_volume" "test" {
   availability_zone = data.aws_availability_zones.available.names[0]
   snapshot_id       = aws_ebs_snapshot.test.id
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName))
+}
+
+func testAccDatafyEBSVolumeConfig_native(rName string) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone  = data.aws_availability_zones.available.names[0]
+  size               = 100
+  autoscaling_native = true
 
   tags = {
     Name = %[1]q

@@ -35,10 +35,25 @@ func DescribeDatafiedVolumesInput(sourceVolumeId string) *ec2.DescribeVolumesInp
 	}
 }
 
+// TagsFrom flattens TagSpecifications for the given resource type into a key/value map.
+func TagsFrom(ts []types.TagSpecification, rt types.ResourceType) map[string]string {
+	tags := make(map[string]string)
+	for _, spec := range ts {
+		if spec.ResourceType != rt {
+			continue
+		}
+		for _, t := range spec.Tags {
+			tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
+		}
+	}
+	return tags
+}
+
 func RemoveDatafyTags(tags []types.Tag) []types.Tag {
 	return slices.DeleteFunc(tags, func(t types.Tag) bool {
 		key := aws.ToString(t.Key)
-		return strings.HasPrefix(key, tagsPrefix) || (key == managedByTagKey && aws.ToString(t.Value) == managedByTagValue)
+		return strings.HasPrefix(key, tagsPrefix) ||
+			(key == managedByTagKey && aws.ToString(t.Value) == managedByTagValue)
 	})
 }
 

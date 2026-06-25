@@ -89,6 +89,13 @@ func resourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			"autoscaling_native": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				ForceNew:    true,
+				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
+			},
 			names.AttrAvailabilityZone: {
 				Type:     schema.TypeString,
 				Required: true,
@@ -233,19 +240,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		restoredVolume, err := dc.CreateVolumeFromSnapshot(snapshotId,
 			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput),
-			func() map[string]string {
-				tags := make(map[string]string)
-				for _, ts := range input.TagSpecifications {
-					if ts.ResourceType != awstypes.ResourceTypeVolume {
-						continue
-					}
-					for _, t := range ts.Tags {
-						tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
-					}
-				}
-				return tags
-			}(),
-		)
+			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating EBS Volume from datafy snapshot (%s): %s", snapshotId, err)
 		}
@@ -279,6 +274,39 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 			outputArn := strings.ReplaceAll(*volume.OutpostArn, *volume.VolumeId, d.Id())
 			return &outputArn
 		}())
+
+		return diags
+	}
+
+	if d.Get("autoscaling_native").(bool) {
+		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
+			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId),
+			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
+		}
+		d.SetId(aws.ToString(datafied.VolumeId))
+
+		dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
+		} else if len(dvo.Volumes) == 0 {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
+		}
+
+		for _, volume := range dvo.Volumes {
+			datafyVolumeId := aws.ToString(volume.VolumeId)
+			if _, err := waitVolumeCreated(ctx, conn, datafyVolumeId, d.Timeout(schema.TimeoutCreate)); err != nil {
+				return sdkdiag.AppendErrorf(diags, "waiting for datafy volume (%s) of EBS Volume (%s) create: %s", datafyVolumeId, d.Id(), err)
+			}
+		}
+
+		volume := dvo.Volumes[0]
+		if err := resourceEBSVolumeFlatten(ctx, c, &volume, d); err != nil {
+			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
+		}
+		d.Set(names.AttrSize, aws.ToInt32(input.Size))
 
 		return diags
 	}

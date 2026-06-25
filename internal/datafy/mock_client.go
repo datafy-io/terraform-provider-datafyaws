@@ -106,6 +106,65 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return restoredVolume, nil
 }
 
+func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*Volume, error) {
+	// AWS rejects synthetic vol-ids in DescribeVolumes with
+	// InvalidParameterValue, not InvalidVolume.NotFound. The provider's Read
+	// path only treats the latter as "missing → fall back to Datafy". Harvest
+	// a real AWS-issued vol-id by creating a tiny volume and immediately
+	// deleting it; refresh-after-create then surfaces it as NotFound.
+	probe, err := m.ec2Client.CreateVolume(context.Background(), &ec2.CreateVolumeInput{
+		AvailabilityZone: aws.String(availabilityZone),
+		Size:             aws.Int32(1),
+		VolumeType:       types.VolumeTypeGp2,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sourceVolumeId := aws.ToString(probe.VolumeId)
+	if _, err := m.ec2Client.DeleteVolume(context.Background(), &ec2.DeleteVolumeInput{VolumeId: &sourceVolumeId}); err != nil {
+		return nil, err
+	}
+
+	tags := []types.Tag{
+		{Key: aws.String(managedByTagKey), Value: aws.String(managedByTagValue)},
+		{Key: aws.String(sourceVolumeTagKey), Value: aws.String(sourceVolumeId)},
+		{Key: aws.String("datafy:volume-source"), Value: aws.String("native")},
+	}
+	for key, value := range tagz {
+		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+
+	for range 2 {
+		if _, err := m.ec2Client.CreateVolume(context.Background(), &ec2.CreateVolumeInput{
+			AvailabilityZone: aws.String(availabilityZone),
+			Size:             aws.Int32(int32(diskSize)),
+			VolumeType:       types.VolumeTypeGp3,
+			Iops:             iops,
+			Throughput:       throughput,
+			TagSpecifications: []types.TagSpecification{
+				{ResourceType: types.ResourceTypeVolume, Tags: tags},
+			},
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	source := &Volume{
+		Volume: &types.Volume{
+			VolumeId:         aws.String(sourceVolumeId),
+			AvailabilityZone: aws.String(availabilityZone),
+			Size:             aws.Int32(int32(diskSize)),
+			Iops:             iops,
+			Throughput:       throughput,
+		},
+		IsManaged:  true,
+		IsDatafied: true,
+		HasSource:  false,
+	}
+	m.SetVolume(sourceVolumeId, source)
+	return source, nil
+}
+
 func (m *MockClient) AttachVolume(instanceId string, volumeId string, _ string) error {
 	dvo, err := m.ec2Client.DescribeVolumes(context.Background(), DescribeDatafiedVolumesInput(volumeId))
 	if err != nil {
