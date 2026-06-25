@@ -81,6 +81,13 @@ func ResourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			"autoscaling_native": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				ForceNew:    true,
+				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
+			},
 			"availability_zone": {
 				Type:     schema.TypeString,
 				Required: true,
@@ -267,6 +274,64 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 		}())
 		d.Set("size", restoredVolume.VolumeSizeGB)
 		d.Set("snapshot_id", snapshotId)
+		d.Set("throughput", volume.Throughput)
+		d.Set("type", volume.VolumeType)
+
+		SetTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
+
+		return diags
+	}
+
+	if d.Get("autoscaling_native").(bool) {
+		dc := meta.(*conns.AWSClient).DatafyClient()
+		var iops *int32
+		if input.Iops != nil {
+			v := int32(aws.Int64Value(input.Iops))
+			iops = &v
+		}
+		var throughput *int32
+		if input.Throughput != nil {
+			v := int32(aws.Int64Value(input.Throughput))
+			throughput = &v
+		}
+		datafied, err := dc.CreateDatafiedVolume(aws.StringValue(input.AvailabilityZone), aws.Int64Value(input.Size),
+			iops, throughput, input.Encrypted, aws.StringValue(input.KmsKeyId),
+			datafy.TagsFrom(input.TagSpecifications, ec2.ResourceTypeVolume))
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
+		}
+		d.SetId(aws.StringValue(datafied.VolumeId))
+
+		dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(d.Id()))
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s): %s", d.Id(), err)
+		} else if len(dvo.Volumes) == 0 {
+			return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", d.Id())
+		}
+
+		for _, volume := range dvo.Volumes {
+			datafyVolumeId := aws.StringValue(volume.VolumeId)
+			if _, err := WaitVolumeCreated(ctx, conn, datafyVolumeId, d.Timeout(schema.TimeoutCreate)); err != nil {
+				return sdkdiag.AppendErrorf(diags, "waiting for datafy volume (%s) of EBS Volume (%s) create: %s", datafyVolumeId, d.Id(), err)
+			}
+		}
+
+		volume := dvo.Volumes[0]
+		arnVal := arn.ARN{
+			Partition: meta.(*conns.AWSClient).Partition,
+			Service:   names.EC2,
+			Region:    meta.(*conns.AWSClient).Region,
+			AccountID: meta.(*conns.AWSClient).AccountID,
+			Resource:  fmt.Sprintf("volume/%s", d.Id()),
+		}
+		d.Set("arn", arnVal.String())
+		d.Set("availability_zone", volume.AvailabilityZone)
+		d.Set("encrypted", volume.Encrypted)
+		d.Set("iops", volume.Iops)
+		d.Set("kms_key_id", volume.KmsKeyId)
+		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
+		d.Set("outpost_arn", volume.OutpostArn)
+		d.Set("size", aws.Int64Value(input.Size))
 		d.Set("throughput", volume.Throughput)
 		d.Set("type", volume.VolumeType)
 

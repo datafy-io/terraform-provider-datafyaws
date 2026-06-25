@@ -561,6 +561,48 @@ resource "aws_ebs_volume" "test" {
 `, rName))
 }
 
+func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
+	ctx := acctest.Context(t)
+	var dv []*ec2.Volume
+	resourceName := "aws_ebs_volume.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_native(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
+func testAccDatafyEBSVolumeConfig_native(rName string) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone  = data.aws_availability_zones.available.names[0]
+  size               = 1
+  autoscaling_native = true
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName))
+}
+
 func testAccDatafyEBSVolumeConfig_snapshotInGroup(rName string) string {
 	return acctest.ConfigCompose(
 		acctest.ConfigAvailableAZsNoOptIn(),
