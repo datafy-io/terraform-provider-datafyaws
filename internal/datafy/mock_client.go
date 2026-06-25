@@ -180,6 +180,58 @@ func (m *MockClient) DetachVolume(instanceId string, volumeId string) error {
 	}, time.Minute)
 }
 
+func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*Volume, error) {
+	probe, err := m.ec2Client.CreateVolume(context.Background(), &ec2_sdkv2.CreateVolumeInput{
+		AvailabilityZone: aws.String(availabilityZone),
+		Size:             aws.Int32(1),
+		VolumeType:       types.VolumeTypeGp2,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sourceVolumeId := aws.ToString(probe.VolumeId)
+	if _, err := m.ec2Client.DeleteVolume(context.Background(), &ec2_sdkv2.DeleteVolumeInput{VolumeId: &sourceVolumeId}); err != nil {
+		return nil, err
+	}
+
+	tags := []types.Tag{
+		{Key: aws.String(managedByTagKey), Value: aws.String(managedByTagValue)},
+		{Key: aws.String(sourceVolumeTagKey), Value: aws.String(sourceVolumeId)},
+		{Key: aws.String("datafy:volume-source"), Value: aws.String("native")},
+	}
+	for key, value := range tagz {
+		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := m.ec2Client.CreateVolume(context.Background(), &ec2_sdkv2.CreateVolumeInput{
+			AvailabilityZone: aws.String(availabilityZone),
+			Size:             aws.Int32(int32(diskSize)),
+			VolumeType:       types.VolumeTypeGp3,
+			Iops:             iops,
+			Throughput:       throughput,
+			TagSpecifications: []types.TagSpecification{
+				{ResourceType: types.ResourceTypeVolume, Tags: tags},
+			},
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	source := &Volume{
+		Volume: &types.Volume{
+			VolumeId:         aws.String(sourceVolumeId),
+			AvailabilityZone: aws.String(availabilityZone),
+			Size:             aws.Int32(int32(diskSize)),
+			Iops:             iops,
+			Throughput:       throughput,
+		},
+		IsManaged: true, IsDatafied: true, HasSource: false,
+	}
+	m.SetVolume(sourceVolumeId, source)
+	return source, nil
+}
+
 func (m *MockClient) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
