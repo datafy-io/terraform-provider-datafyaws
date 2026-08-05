@@ -680,6 +680,17 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	throughput := diff.Get(names.AttrThroughput).(int)
 	volumeType := awstypes.VolumeType(diff.Get(names.AttrType).(string))
 
+	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
+	// Check the raw config (not the planned value): `type` is Computed,
+	// so the plan carries over old/API values that the user never wrote.
+	if value, ok := diff.GetOk("autoscaling_native"); ok && value.(bool) {
+		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
+			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
+				return fmt.Errorf("`type` must not be set when autoscaling_native is true; native volumes are always provisioned as %q", awstypes.VolumeTypeGp3)
+			}
+		}
+	}
+
 	if diff.Id() == "" {
 		// Create.
 
