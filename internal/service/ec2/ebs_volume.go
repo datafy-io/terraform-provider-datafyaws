@@ -89,10 +89,13 @@ func resourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			// Do not set `Default: false` here: volumes provisioned by provider
+			// versions that predate this attribute hold nil for it in state, and a
+			// default would plan a "phantom nil -> false" change that, being ForceNew,
+			// recreates the volume.
 			"autoscaling_native": {
 				Type:        schema.TypeBool,
 				Optional:    true,
-				Default:     false,
 				ForceNew:    true,
 				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
 			},
@@ -278,7 +281,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		return diags
 	}
 
-	if d.Get("autoscaling_native").(bool) {
+	if value, ok := d.GetOk("autoscaling_native"); ok && value.(bool) {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
 			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId),
