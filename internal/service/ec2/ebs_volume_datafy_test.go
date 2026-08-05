@@ -574,7 +574,7 @@ func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig_native(rName),
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
@@ -587,12 +587,97 @@ func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 	})
 }
 
-func testAccDatafyEBSVolumeConfig_native(rName string) string {
+// autoscaling_native is ForceNew, so flipping it on a datafied volume plans a
+// replacement, which the modify guard must reject.
+func TestAccDatafyEC2EBSVolume_blockModifyAutoscalingNative(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v ec2.Volume
+	resourceName := "aws_ebs_volume.test"
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, false),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				PreConfig:   createDatafyVolume(ctx, &v),
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, true),
+				ExpectError: regexp.MustCompile(`can't modify datafied EBS Volume .*`),
+			},
+		},
+	})
+}
+
+// On a volume datafy does not manage, flipping autoscaling_native is a regular
+// ForceNew change: the volume is replaced with a native datafied one. (No
+// ConfigPlanChecks here: release/4.x predates terraform-plugin-testing; the
+// datafy volume check after apply covers the replacement.)
+func TestAccDatafyEC2EBSVolume_enableAutoscalingNative(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v ec2.Volume
+	var dv []*ec2.Volume
+	resourceName := "aws_ebs_volume.test"
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, false),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, true),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+				),
+			},
+		},
+	})
+}
+
+// Datafy owns the volume type of native volumes (always gp3), so any explicit
+// `type` — even gp3 — must be rejected at plan time; only unset is allowed.
+func TestAccDatafyEC2EBSVolume_rejectAutoscalingNativeWithType(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp2"),
+				ExpectError: regexp.MustCompile("`type` must not be set when autoscaling_native is true"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp3"),
+				ExpectError: regexp.MustCompile("`type` must not be set when autoscaling_native is true"),
+			},
+		},
+	})
+}
+
+func testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, volumeType string) string {
 	return acctest.ConfigCompose(
 		acctest.ConfigAvailableAZsNoOptIn(),
 		fmt.Sprintf(`
 resource "aws_ebs_volume" "test" {
   availability_zone  = data.aws_availability_zones.available.names[0]
+  type               = %[2]q
   size               = 1
   autoscaling_native = true
 
@@ -600,7 +685,23 @@ resource "aws_ebs_volume" "test" {
     Name = %[1]q
   }
 }
-`, rName))
+`, rName, volumeType))
+}
+
+func testAccDatafyEBSVolumeConfig_autoscalingNative(rName string, autoscalingNative bool) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone  = data.aws_availability_zones.available.names[0]
+  size               = 1
+  autoscaling_native = %[2]t
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName, autoscalingNative))
 }
 
 func testAccDatafyEBSVolumeConfig_snapshotInGroup(rName string) string {

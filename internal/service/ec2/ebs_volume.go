@@ -81,10 +81,13 @@ func ResourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
+			// Do not set `Default: false` here: volumes provisioned by provider
+			// versions that predate this attribute hold nil for it in state, and a
+			// default would plan a "phantom nil -> false" change that, being ForceNew,
+			// recreates the volume.
 			"autoscaling_native": {
 				Type:        schema.TypeBool,
 				Optional:    true,
-				Default:     false,
 				ForceNew:    true,
 				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
 			},
@@ -282,7 +285,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 		return diags
 	}
 
-	if d.Get("autoscaling_native").(bool) {
+	if value, ok := d.GetOk("autoscaling_native"); ok && value.(bool) {
 		dc := meta.(*conns.AWSClient).DatafyClient()
 		var iops *int32
 		if input.Iops != nil {
@@ -676,6 +679,17 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	multiAttachEnabled := diff.Get("multi_attach_enabled").(bool)
 	throughput := diff.Get("throughput").(int)
 	volumeType := diff.Get("type").(string)
+
+	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
+	// Check the raw config (not the planned value): `type` is Computed,
+	// so the plan carries over old/API values that the user never wrote.
+	if value, ok := diff.GetOk("autoscaling_native"); ok && value.(bool) {
+		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
+			if typeVal := rawConfig.GetAttr("type"); typeVal.IsKnown() && !typeVal.IsNull() {
+				return fmt.Errorf("`type` must not be set when autoscaling_native is true; native volumes are always provisioned as %q", ec2.VolumeTypeGp3)
+			}
+		}
+	}
 
 	if diff.Id() == "" {
 		// Create.
