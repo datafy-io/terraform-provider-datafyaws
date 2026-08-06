@@ -27,10 +27,10 @@ import (
 
 func TestAccDatafyEC2EBSVolume_basic(t *testing.T) {
 	ctx := acctest.Context(t)
-	var v awstypes.Volume
-	var dv []awstypes.Volume
 	resourceName := "aws_ebs_volume.test"
 
+	var v awstypes.Volume
+	var dv datafyVolume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -59,10 +59,10 @@ func TestAccDatafyEC2EBSVolume_basic(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_replacedBy(t *testing.T) {
 	ctx := acctest.Context(t)
-	var v awstypes.Volume
 	resourceName := "aws_ebs_volume.test"
 	replacedBy := ""
 
+	var v awstypes.Volume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -92,10 +92,10 @@ func TestAccDatafyEC2EBSVolume_replacedBy(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_blockModifyType(t *testing.T) {
 	ctx := acctest.Context(t)
-	var v awstypes.Volume
-	var dv []awstypes.Volume
-	resourceName := "aws_ebs_volume.test"
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+	var v awstypes.Volume
+	var dv datafyVolume
 
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
@@ -123,11 +123,11 @@ func TestAccDatafyEC2EBSVolume_blockModifyType(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_modifyOnlyTags(t *testing.T) {
 	ctx := acctest.Context(t)
-	var v awstypes.Volume
-	var dv []awstypes.Volume
-	resourceName := "aws_ebs_volume.test"
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
 
+	var v awstypes.Volume
+	var dv datafyVolume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -157,11 +157,11 @@ func TestAccDatafyEC2EBSVolume_modifyOnlyTags(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_modifyOnlySize(t *testing.T) {
 	ctx := acctest.Context(t)
-	var v awstypes.Volume
-	var dv []awstypes.Volume
 	resourceName := "aws_ebs_volume.test"
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
 
+	var v awstypes.Volume
+	var dv datafyVolume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -191,11 +191,11 @@ func TestAccDatafyEC2EBSVolume_modifyOnlySize(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_restoreFromSnapshot(t *testing.T) {
 	ctx := acctest.Context(t)
-	var dv []awstypes.Volume
-	resourceName := "aws_ebs_volume.test"
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
 	dsnapId := sdkacctest.RandomWithPrefix("dsnap")
+	resourceName := "aws_ebs_volume.test"
 
+	var dv datafyVolume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -237,10 +237,10 @@ func TestAccDatafyEC2EBSVolume_rejectDatafyTagOnCreate(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_rejectDatafyTagOnUpdate(t *testing.T) {
 	ctx := acctest.Context(t)
-	var v awstypes.Volume
 	resourceName := "aws_ebs_volume.test"
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
 
+	var v awstypes.Volume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -281,10 +281,10 @@ func TestAccDatafyEC2EBSVolume_rejectSnapshotInGroup(t *testing.T) {
 
 func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 	ctx := acctest.Context(t)
-	var dv []awstypes.Volume
-	resourceName := "aws_ebs_volume.test"
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
 
+	var dv datafyVolume
 	resource.ParallelTest(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
 		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
@@ -300,6 +300,210 @@ func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 			},
 			{
 				RefreshState: true,
+			},
+		},
+	})
+}
+
+// on a native (datafied) volume, flipping the flag to false errors, and removing it from the
+// configuration errors as long as the volume is datafied.
+func TestAccDatafyEC2EBSVolume_autoscalingNativeDatafiedNative(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var dv datafyVolume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+				),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, false),
+				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				ExpectError: regexache.MustCompile("removing `autoscaling_native` from EBS Volume .* is not allowed while the volume is datafied"),
+			},
+		},
+	})
+}
+
+// a native volume that was undatafied from the UI (replaced by a standard volume).
+// Flipping the flag to false still errors, but removing it from the configuration is a noop - to allow offboarding.
+func TestAccDatafyEC2EBSVolume_autoscalingNativeUndatafiedFromUI(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var dv datafyVolume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+				),
+			},
+			{
+				PreConfig:   undatafyNativeVolume(ctx, &dv, rName),
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, false),
+				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionNoop),
+					},
+				},
+			},
+		},
+	})
+}
+
+// a standard volume (flag false) that was datafied from the UI.
+// Flipping the flag to true errors, and removing it from the configuration
+// errors as long as the volume is datafied.
+func TestAccDatafyEC2EBSVolume_autoscalingNativeDatafied(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var v awstypes.Volume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, false),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, t, resourceName, &v),
+				),
+			},
+			{
+				PreConfig:   createDatafyVolume(ctx, &v),
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
+				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				ExpectError: regexache.MustCompile("removing `autoscaling_native` from EBS Volume .* is not allowed while the volume is datafied"),
+			},
+		},
+	})
+}
+
+// a standard volume (flag false) that datafy does not manage.
+// Flipping the flag to true errors, and removing it from the configuration is
+// a noop — offboarding is allowed.
+func TestAccDatafyEC2EBSVolume_autoscalingNativeUndatafied(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var v awstypes.Volume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, false),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, t, resourceName, &v),
+				),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
+				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionNoop),
+					},
+				},
+			},
+		},
+	})
+}
+
+// A volume created without the flag holds nil for it in state. Adding the flag
+// to the configuration afterwards (true or false) - errors; keeping it omitted stays a noop.
+func TestAccDatafyEC2EBSVolume_autoscalingNativeAddToExisting(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var v awstypes.Volume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVolumeDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, t, resourceName, &v),
+				),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, false),
+				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
+				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionNoop),
+					},
+				},
+			},
+		},
+	})
+}
+
+// Datafy owns the volume type of native volumes (always gp3), so any explicit
+// `type` (even gp3) must be rejected at plan time; only unset is allowed.
+func TestAccDatafyEC2EBSVolume_rejectAutoscalingNativeWithType(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp2"),
+				ExpectError: regexache.MustCompile("`type` must not be set when autoscaling_native is true"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp3"),
+				ExpectError: regexache.MustCompile("`type` must not be set when autoscaling_native is true"),
 			},
 		},
 	})
@@ -456,7 +660,65 @@ func createDatafyReplacedByVolume(ctx context.Context, v *awstypes.Volume, repla
 	}
 }
 
-func testAccDatafyCheckVolumeExists(ctx context.Context, n string, dv *[]awstypes.Volume) resource.TestCheckFunc {
+// undatafyNativeVolume simulates undatafying a native volume from the datafy
+// UI: a real standard volume replaces it, the datafy shard volumes are removed,
+// and the mock reports the old (synthetic) volume id as replaced and unmanaged.
+func undatafyNativeVolume(ctx context.Context, dv *datafyVolume, rName string) func() {
+	return func() {
+		err := func() error {
+			conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Client(ctx)
+
+			cvo, err := conn.CreateVolume(ctx, &awsec2.CreateVolumeInput{
+				AvailabilityZone: dv.volumes[0].AvailabilityZone,
+				Size:             aws.Int32(100),
+				TagSpecifications: []awstypes.TagSpecification{
+					{
+						ResourceType: awstypes.ResourceTypeVolume,
+						Tags: []awstypes.Tag{
+							{
+								Key:   aws.String("Name"),
+								Value: aws.String(rName),
+							},
+						},
+					},
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			replacement, err := tfec2.FindEBSVolumeByID(ctx, conn, aws.ToString(cvo.VolumeId))
+			if err != nil {
+				return err
+			}
+
+			for _, shard := range dv.volumes {
+				if _, err := conn.DeleteVolume(ctx, &awsec2.DeleteVolumeInput{VolumeId: shard.VolumeId}); err != nil {
+					return err
+				}
+			}
+
+			acctest.DatafyClient.SetVolume(dv.volumeId, &datafy.Volume{
+				Volume:     replacement,
+				HasSource:  false,
+				IsManaged:  false,
+				IsDatafied: false,
+				ReplacedBy: aws.ToString(replacement.VolumeId),
+			})
+			return nil
+		}()
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+type datafyVolume struct {
+	volumeId string
+	volumes  []awstypes.Volume
+}
+
+func testAccDatafyCheckVolumeExists(ctx context.Context, n string, dv *datafyVolume) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
@@ -477,14 +739,15 @@ func testAccDatafyCheckVolumeExists(ctx context.Context, n string, dv *[]awstype
 			return fmt.Errorf("no datafy volumes found for source volume %s", rs.Primary.ID)
 		}
 
-		*dv = dvo.Volumes
+		dv.volumeId = rs.Primary.ID
+		dv.volumes = dvo.Volumes
 		return nil
 	}
 }
 
-func testAccDatafyCheckTagExists(_ context.Context, dv *[]awstypes.Volume, key, value string) resource.TestCheckFunc {
+func testAccDatafyCheckTagExists(_ context.Context, dv *datafyVolume, key, value string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		for _, v := range *dv {
+		for _, v := range dv.volumes {
 			if !slices.ContainsFunc(v.Tags, func(t awstypes.Tag) bool {
 				return aws.ToString(t.Key) == key && aws.ToString(t.Value) == value
 			}) {
@@ -550,93 +813,6 @@ resource "aws_ebs_volume" "test" {
 `, rName))
 }
 
-// autoscaling_native is ForceNew, so flipping it on a datafied volume plans a
-// replacement, which the modify guard must reject.
-func TestAccDatafyEC2EBSVolume_blockModifyAutoscalingNative(t *testing.T) {
-	ctx := acctest.Context(t)
-	var v awstypes.Volume
-	resourceName := "aws_ebs_volume.test"
-
-	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
-		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
-		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, false),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckVolumeExists(ctx, t, resourceName, &v),
-				),
-			},
-			{
-				PreConfig:   createDatafyVolume(ctx, &v),
-				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, true),
-				ExpectError: regexache.MustCompile(`can't modify datafied EBS Volume .*`),
-			},
-		},
-	})
-}
-
-// On a volume datafy does not manage, flipping autoscaling_native is a regular
-// ForceNew change: the volume is replaced with a native datafied one.
-func TestAccDatafyEC2EBSVolume_enableAutoscalingNative(t *testing.T) {
-	ctx := acctest.Context(t)
-	var v awstypes.Volume
-	var dv []awstypes.Volume
-	resourceName := "aws_ebs_volume.test"
-
-	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
-		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
-		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
-		Steps: []resource.TestStep{
-			{
-				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, false),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckVolumeExists(ctx, t, resourceName, &v),
-				),
-			},
-			{
-				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(resourceName, true),
-				ConfigPlanChecks: resource.ConfigPlanChecks{
-					PreApply: []plancheck.PlanCheck{
-						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionReplace),
-					},
-				},
-				Check: resource.ComposeTestCheckFunc(
-					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
-				),
-			},
-		},
-	})
-}
-
-// Datafy owns the volume type of native volumes (always gp3), so any explicit
-// `type` — even gp3 — must be rejected at plan time; only unset is allowed.
-func TestAccDatafyEC2EBSVolume_rejectAutoscalingNativeWithType(t *testing.T) {
-	ctx := acctest.Context(t)
-	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
-
-	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
-		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
-		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
-		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
-		Steps: []resource.TestStep{
-			{
-				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp2"),
-				ExpectError: regexache.MustCompile("`type` must not be set when autoscaling_native is true"),
-			},
-			{
-				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp3"),
-				ExpectError: regexache.MustCompile("`type` must not be set when autoscaling_native is true"),
-			},
-		},
-	})
-}
-
 func testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, volumeType string) string {
 	return acctest.ConfigCompose(
 		acctest.ConfigAvailableAZsNoOptIn(),
@@ -668,6 +844,23 @@ resource "aws_ebs_volume" "test" {
   }
 }
 `, rName, autoscalingNative))
+}
+
+// testAccDatafyEBSVolumeConfig_autoscalingNative without the flag, so the only
+// config change when switching between them is the flag itself.
+func testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName string) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone = data.aws_availability_zones.available.names[0]
+  size              = 100
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName))
 }
 
 func testAccDatafyEBSVolumeConfig_snapshotInGroup(rName string) string {
