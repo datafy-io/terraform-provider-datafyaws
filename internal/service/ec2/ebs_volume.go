@@ -87,13 +87,12 @@ func resourceEBSVolume() *schema.Resource {
 			},
 			// Do not set `Default: false` here: volumes provisioned by provider
 			// versions that predate this attribute hold nil for it in state, and a
-			// default would plan a "phantom nil -> false" change that, being ForceNew,
-			// recreates the volume.
+			// default would plan a phantom "nil -> false" change for them.
 			"autoscaling_native": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				ForceNew:    true,
-				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
+				Type:     schema.TypeBool,
+				Optional: true,
+				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume. " +
+					"This flag is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
 			},
 			names.AttrAvailabilityZone: {
 				Type:     schema.TypeString,
@@ -662,7 +661,7 @@ func waitDatafyVolumeModified(ctx context.Context, dc datafy.Client, id string, 
 	return err
 }
 
-func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff, meta any) error {
+func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
 	iops := diff.Get(names.AttrIOPS).(int)
 	multiAttachEnabled := diff.Get("multi_attach_enabled").(bool)
 	throughput := diff.Get(names.AttrThroughput).(int)
@@ -675,6 +674,27 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
 			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
 				return fmt.Errorf("`type` must not be set when autoscaling_native is true; native volumes are always provisioned as %q", awstypes.VolumeTypeGp3)
+			}
+		}
+	}
+
+	// autoscaling_native is immutable once the volume exists: it can't be set,
+	// unset, or flipped. The only allowed config change is removing it once the
+	// volume is no longer datafied (offboarding). Volumes from provider versions
+	// that predate the attribute (nil in state) stay nil. Raw values are used
+	// because with no schema default an omitted attribute produces no plan diff.
+	if diff.Id() != "" {
+		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() {
+			stateVal := rawState.GetAttr("autoscaling_native")
+			configVal := rawConfig.GetAttr("autoscaling_native")
+			switch {
+			case configVal.IsKnown() && !configVal.IsNull() && (stateVal.IsNull() || !configVal.RawEquals(stateVal)):
+				return fmt.Errorf("changing `autoscaling_native` of an existing EBS Volume (%s) is not allowed", diff.Id())
+			case configVal.IsNull() && !stateVal.IsNull():
+				dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+				if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
+					return fmt.Errorf("removing `autoscaling_native` from EBS Volume (%s) is not allowed while the volume is datafied", diff.Id())
+				}
 			}
 		}
 	}
