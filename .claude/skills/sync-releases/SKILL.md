@@ -1,6 +1,6 @@
 ---
 name: sync-releases
-description: Manage the three-release workflow for this repo - create aligned DT-ticket feature branches off release/4.x, 5.x and 6.x, and port (sync) commits from the currently checked-out ticket branch to its two sibling release branches. Use when the user says "sync", "sync releases", "sync the branches", "port to the other branches", or wants to start ticket work across all release lines.
+description: Manage the three-release workflow for this repo - create aligned DT-ticket feature branches off release/4.x, 5.x and 6.x, port (sync) commits from the currently checked-out ticket branch to its two sibling release branches, and push all three. Use when the user says "sync", "sync releases", "sync the branches", "port to the other branches", "push" (push all three ticket branches), "sync push" (sync then push), or wants to start ticket work across all release lines.
 ---
 
 # sync-releases
@@ -23,6 +23,8 @@ Branch naming convention: `DT-<number>/release<4|5|6>`, or with an optional titl
    - Nothing to sync yet; tell the user to work normally and say "sync" when ready.
 
 ## Sync (port current-branch commits to the two sibling branches)
+
+**Run fully autonomously.** Once the user asks to sync, drive the whole procedure end-to-end — branch creation, worktrees, cherry-picks, conflict resolution, adaptations, compile checks, commits, cleanup — without asking for confirmation at any step. The only reasons to stop and ask: uncommitted ticket-relevant changes (tell the user to commit), an ambiguous source branch, or a conflict you genuinely cannot resolve from the adaptation notes (report what you tried). Never ask "should I proceed?".
 
 Source of truth: commits on the current branch, `git log --oneline origin/release/<X>.x..<current-branch>` (X = the source branch's release number). Uncommitted working-tree changes are NOT ported — if `git status` shows modified files relevant to the ticket, tell the user to commit first and stop.
 
@@ -67,6 +69,12 @@ For each target: cherry-pick each missing commit (`git cherry-pick <sha>`). Betw
 
 - Compile-check inside each worktree: `go vet ./<changed-pkg>/` and `go test -run xxx_nonexistent ./<changed-pkg>/` for every package the port touched. First builds of a branch take minutes — run in background if slow. Fix errors and amend the ported commit.
 - Watch for source-branch bugs surfaced by porting (e.g. an `ExpectError` regex that no longer matches a reworded error). Fix on the target AND on the source working tree, and tell the user to commit the source-branch fix.
-- Never push. Never run acceptance tests (they need AWS credentials) — tell the user the per-branch command instead.
+- Never push as part of sync itself — pushing happens only via the **Push** command below. Never run acceptance tests (they need AWS credentials) — tell the user the per-branch command instead.
 - Remove worktrees when done: `git worktree remove --force <dir>` (builds dirty `tools/tfsdk2fw/go.mod` — safe to discard).
 - Report per branch: commits ported, adaptations made, hunks dropped (missing features), and anything needing the user's attention.
+
+## Push ("push" / "sync push")
+
+- **"push"**: push all three ticket branches to origin under their own names: `git push -u origin '<branch>'` for each (`-u` creates the remote branch on first push and sets the upstream; safe because ticket branches are created with `--no-track` and never track the release branches). Report the three pushed refs. If a push is rejected (remote diverged, e.g. after a local amend of an already-pushed commit), stop and report — never force-push without the user explicitly asking.
+- **"sync push"**: run the full **Sync** first; if it completes cleanly (or reports nothing to port), push all three as above. If sync stops (uncommitted changes, unresolvable conflict), do not push anything.
+- Run autonomously like sync — no confirmation prompts.
