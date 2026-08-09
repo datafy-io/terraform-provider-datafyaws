@@ -68,6 +68,7 @@ For each target: cherry-pick each missing commit (`git cherry-pick <sha>`). Betw
 ### Verify, commit, clean up (all targets)
 
 - Compile-check inside each worktree: `go vet ./<changed-pkg>/` and `go test -run xxx_nonexistent ./<changed-pkg>/` for every package the port touched. First builds of a branch take minutes — run in background if slow. Fix errors and amend the ported commit.
+- Format inside each worktree after porting (when the port touched Go files): run `make fmt`. If it reformats anything, amend those changes into the ported commit — never leave formatting fixes uncommitted or as separate commits.
 - Watch for source-branch bugs surfaced by porting (e.g. an `ExpectError` regex that no longer matches a reworded error). Fix on the target AND on the source working tree, and tell the user to commit the source-branch fix.
 - Never push as part of sync itself — pushing happens only via the **Push** command below. Never run acceptance tests (they need AWS credentials) — tell the user the per-branch command instead.
 - Remove worktrees when done: `git worktree remove --force <dir>` (builds dirty `tools/tfsdk2fw/go.mod` — safe to discard).
