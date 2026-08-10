@@ -338,7 +338,9 @@ func TestAccDatafyEC2EBSVolume_autoscalingNativeDatafiedNative(t *testing.T) {
 }
 
 // a native volume that was undatafied from the UI (replaced by a standard volume).
-// Flipping the flag to false still errors, but removing it from the configuration is a noop - to allow offboarding.
+// Flipping the flag to false still errors, but removing it from the configuration is
+// allowed - it applies in-place, leaving false in state (offboarding; the legacy
+// Plugin SDK writes the zero value for removed optional primitives, not null).
 func TestAccDatafyEC2EBSVolume_autoscalingNativeUndatafiedFromUI(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
@@ -355,12 +357,24 @@ func TestAccDatafyEC2EBSVolume_autoscalingNativeUndatafiedFromUI(t *testing.T) {
 				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, "autoscaling_native", "true"),
 				),
 			},
 			{
 				PreConfig:   undatafyNativeVolume(ctx, &dv, rName),
 				Config:      testAccDatafyEBSVolumeConfig_autoscalingNative(rName, false),
 				ExpectError: regexache.MustCompile("changing `autoscaling_native` of an existing EBS Volume"),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionUpdate),
+					},
+				},
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, "autoscaling_native", "false"),
+				),
 			},
 			{
 				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName),
