@@ -442,7 +442,9 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta i
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Conn()
 
-	if d.HasChangesExcept("tags", "tags_all") {
+	// autoscaling_native has no volume-modification semantics: the only change that
+	// reaches Update is its removal on offboarding, which only rewrites state.
+	if d.HasChangesExcept("tags", "tags_all", "autoscaling_native") {
 		// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
 		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
 		// and give back control to terraform
@@ -696,7 +698,10 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	// that predate the attribute (nil in state) stay nil. Raw values are used
 	// because with no schema default an omitted attribute produces no plan diff.
 	if diff.Id() != "" {
-		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() {
+		// HasAttribute guards keep this working when the attribute is absent from
+		// the schema (like in the vanilla AWS provider).
+		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() &&
+			rawState.Type().HasAttribute("autoscaling_native") && rawConfig.Type().HasAttribute("autoscaling_native") {
 			stateVal := rawState.GetAttr("autoscaling_native")
 			configVal := rawConfig.GetAttr("autoscaling_native")
 			switch {
@@ -707,6 +712,8 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 				if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
 					return fmt.Errorf("removing `autoscaling_native` from EBS Volume (%s) is not allowed while the volume is datafied", diff.Id())
 				}
+				// Offboarding: the removal is allowed to apply. The legacy SDK writes the
+				// zero value, so the attribute ends up as false in state.
 			}
 		}
 	}
