@@ -691,7 +691,7 @@ func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDi
 	if value, ok := diff.GetOk(AttrAutoscalingNative); ok && value.(bool) {
 		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
 			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
-				return fmt.Errorf("`type` must not be set when autoscaling_native is true; native volumes are always provisioned as %q", awstypes.VolumeTypeGp3)
+				return fmt.Errorf("`type` must not be set when %s is true", AttrAutoscalingNative)
 			}
 		}
 	}
@@ -718,11 +718,11 @@ func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDi
 			configVal := rawConfig.GetAttr(AttrAutoscalingNative)
 			switch {
 			case configVal.IsKnown() && !configVal.IsNull() && (stateVal.IsNull() || !configVal.RawEquals(stateVal)):
-				return fmt.Errorf("changing `autoscaling_native` of an existing EBS Volume (%s) is not allowed", diff.Id())
+				return fmt.Errorf("changing `%s` of an existing EBS Volume (%s) is not allowed", AttrAutoscalingNative, diff.Id())
 			case configVal.IsNull() && !stateVal.IsNull():
 				dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 				if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
-					return fmt.Errorf("removing `autoscaling_native` from EBS Volume (%s) is not allowed while the volume is datafied", diff.Id())
+					return fmt.Errorf("removing `%s` from EBS Volume (%s) is not allowed while the volume is datafied", AttrAutoscalingNative, diff.Id())
 				}
 				// Offboarding: the removal is allowed to apply. The legacy SDK writes the
 				// zero value, so the attribute ends up as false in state.
