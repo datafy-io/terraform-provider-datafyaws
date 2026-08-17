@@ -32,6 +32,10 @@ var (
 	datafiedModifiableAttrs = []string{"size", "iops", "throughput"}
 )
 
+const (
+	AttrAutoscalingNative = "autoscaling_native"
+)
+
 // @SDKResource("aws_ebs_volume", name="EBS Volume")
 // @Tags(identifierAttribute="id")
 func ResourceEBSVolume() *schema.Resource {
@@ -81,12 +85,14 @@ func ResourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
-			"autoscaling_native": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				Default:     false,
-				ForceNew:    true,
-				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume.",
+			// Do not set `Default: false` here: volumes provisioned by provider
+			// versions that predate this attribute hold nil for it in state, and a
+			// default would plan a phantom "nil -> false" change for them.
+			AttrAutoscalingNative: {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume. " +
+					"This flag is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
 			},
 			"availability_zone": {
 				Type:     schema.TypeString,
@@ -282,7 +288,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 		return diags
 	}
 
-	if d.Get("autoscaling_native").(bool) {
+	if value, ok := d.GetOk(AttrAutoscalingNative); ok && value.(bool) {
 		dc := meta.(*conns.AWSClient).DatafyClient()
 		var iops *int32
 		if input.Iops != nil {
@@ -440,7 +446,9 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta i
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Conn()
 
-	if d.HasChangesExcept("tags", "tags_all") {
+	// autoscaling_native has no volume-modification semantics: the only change that
+	// reaches Update is its removal on offboarding, which only rewrites state.
+	if d.HasChangesExcept("tags", "tags_all", AttrAutoscalingNative) {
 		// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
 		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
 		// and give back control to terraform
@@ -676,6 +684,51 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	multiAttachEnabled := diff.Get("multi_attach_enabled").(bool)
 	throughput := diff.Get("throughput").(int)
 	volumeType := diff.Get("type").(string)
+
+	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
+	// Check the raw config (not the planned value): `type` is Computed,
+	// so the plan carries over old/API values that the user never wrote.
+	if value, ok := diff.GetOk(AttrAutoscalingNative); ok && value.(bool) {
+		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
+			if typeVal := rawConfig.GetAttr("type"); typeVal.IsKnown() && !typeVal.IsNull() {
+				return fmt.Errorf("`type` must not be set when %s is true", AttrAutoscalingNative)
+			}
+		}
+	}
+
+	// autoscaling_native is immutable once the volume exists: it can't be set,
+	// unset, or flipped. The only allowed config change is removing it once the
+	// volume is no longer datafied (offboarding). Volumes from provider versions
+	// that predate the attribute (nil in state) stay nil. Raw values are used
+	// because with no schema default an omitted attribute produces no plan diff.
+	if diff.Id() != "" {
+		// rawState is the prior state as Terraform stored it after the last apply,
+		// i.e. what the volume currently *is*, before any plan values are merged in.
+		// rawConfig is the .tf configuration exactly as the user wrote it for this
+		// run, before defaults, Computed carry-over or diff customization — so an
+		// attribute the user omitted is null here, which is what lets us tell
+		// "not configured" apart from "configured to the zero value".
+		// Both are null in edge cases (e.g. destroy has no config, import has no
+		// state), hence the IsNull checks.
+		// HasAttribute guards keep this working when the attribute is absent from
+		// the schema (like in the vanilla AWS provider).
+		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() &&
+			rawState.Type().HasAttribute(AttrAutoscalingNative) && rawConfig.Type().HasAttribute(AttrAutoscalingNative) {
+			stateVal := rawState.GetAttr(AttrAutoscalingNative)
+			configVal := rawConfig.GetAttr(AttrAutoscalingNative)
+			switch {
+			case configVal.IsKnown() && !configVal.IsNull() && (stateVal.IsNull() || !configVal.RawEquals(stateVal)):
+				return fmt.Errorf("changing `%s` of an existing EBS Volume (%s) is not allowed", AttrAutoscalingNative, diff.Id())
+			case configVal.IsNull() && !stateVal.IsNull():
+				dc := meta.(*conns.AWSClient).DatafyClient()
+				if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
+					return fmt.Errorf("removing `%s` from EBS Volume (%s) is not allowed while the volume is datafied", AttrAutoscalingNative, diff.Id())
+				}
+				// Offboarding: the removal is allowed to apply. The legacy SDK writes the
+				// zero value, so the attribute ends up as false in state.
+			}
+		}
+	}
 
 	if diff.Id() == "" {
 		// Create.
