@@ -32,6 +32,10 @@ var (
 	datafiedModifiableAttrs = []string{"size", "iops", "throughput"}
 )
 
+const (
+	AttrAutoscalingNative = "autoscaling_native"
+)
+
 // @SDKResource("aws_ebs_volume", name="EBS Volume")
 // @Tags(identifierAttribute="id")
 func ResourceEBSVolume() *schema.Resource {
@@ -84,7 +88,7 @@ func ResourceEBSVolume() *schema.Resource {
 			// Do not set `Default: false` here: volumes provisioned by provider
 			// versions that predate this attribute hold nil for it in state, and a
 			// default would plan a phantom "nil -> false" change for them.
-			"autoscaling_native": {
+			AttrAutoscalingNative: {
 				Type:     schema.TypeBool,
 				Optional: true,
 				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume. " +
@@ -284,7 +288,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 		return diags
 	}
 
-	if value, ok := d.GetOk("autoscaling_native"); ok && value.(bool) {
+	if value, ok := d.GetOk(AttrAutoscalingNative); ok && value.(bool) {
 		dc := meta.(*conns.AWSClient).DatafyClient()
 		var iops *int32
 		if input.Iops != nil {
@@ -444,7 +448,7 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta i
 
 	// autoscaling_native has no volume-modification semantics: the only change that
 	// reaches Update is its removal on offboarding, which only rewrites state.
-	if d.HasChangesExcept("tags", "tags_all", "autoscaling_native") {
+	if d.HasChangesExcept("tags", "tags_all", AttrAutoscalingNative) {
 		// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
 		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
 		// and give back control to terraform
@@ -684,7 +688,7 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
 	// Check the raw config (not the planned value): `type` is Computed,
 	// so the plan carries over old/API values that the user never wrote.
-	if value, ok := diff.GetOk("autoscaling_native"); ok && value.(bool) {
+	if value, ok := diff.GetOk(AttrAutoscalingNative); ok && value.(bool) {
 		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
 			if typeVal := rawConfig.GetAttr("type"); typeVal.IsKnown() && !typeVal.IsNull() {
 				return fmt.Errorf("`type` must not be set when autoscaling_native is true; native volumes are always provisioned as %q", ec2.VolumeTypeGp3)
@@ -701,9 +705,9 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 		// HasAttribute guards keep this working when the attribute is absent from
 		// the schema (like in the vanilla AWS provider).
 		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() &&
-			rawState.Type().HasAttribute("autoscaling_native") && rawConfig.Type().HasAttribute("autoscaling_native") {
-			stateVal := rawState.GetAttr("autoscaling_native")
-			configVal := rawConfig.GetAttr("autoscaling_native")
+			rawState.Type().HasAttribute(AttrAutoscalingNative) && rawConfig.Type().HasAttribute(AttrAutoscalingNative) {
+			stateVal := rawState.GetAttr(AttrAutoscalingNative)
+			configVal := rawConfig.GetAttr(AttrAutoscalingNative)
 			switch {
 			case configVal.IsKnown() && !configVal.IsNull() && (stateVal.IsNull() || !configVal.RawEquals(stateVal)):
 				return fmt.Errorf("changing `autoscaling_native` of an existing EBS Volume (%s) is not allowed", diff.Id())
