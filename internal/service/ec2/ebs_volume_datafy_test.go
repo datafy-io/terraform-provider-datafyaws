@@ -386,7 +386,7 @@ func TestAccDatafyEC2EBSVolume_autoscalingNativeUndatafiedFromUI(t *testing.T) {
 				Config: testAccDatafyEBSVolumeConfig_autoscalingNative(rName, true),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
-					resource.TestCheckResourceAttr(resourceName, "autoscaling_native", "true"),
+					resource.TestCheckResourceAttr(resourceName, tfec2.AttrAutoscalingNative, "true"),
 				),
 			},
 			{
@@ -402,7 +402,7 @@ func TestAccDatafyEC2EBSVolume_autoscalingNativeUndatafiedFromUI(t *testing.T) {
 					},
 				},
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(resourceName, "autoscaling_native", "false"),
+					resource.TestCheckResourceAttr(resourceName, tfec2.AttrAutoscalingNative, "false"),
 				),
 			},
 			{
