@@ -702,6 +702,14 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	// that predate the attribute (nil in state) stay nil. Raw values are used
 	// because with no schema default an omitted attribute produces no plan diff.
 	if diff.Id() != "" {
+		// rawState is the prior state as Terraform stored it after the last apply,
+		// i.e. what the volume currently *is*, before any plan values are merged in.
+		// rawConfig is the .tf configuration exactly as the user wrote it for this
+		// run, before defaults, Computed carry-over or diff customization — so an
+		// attribute the user omitted is null here, which is what lets us tell
+		// "not configured" apart from "configured to the zero value".
+		// Both are null in edge cases (e.g. destroy has no config, import has no
+		// state), hence the IsNull checks.
 		// HasAttribute guards keep this working when the attribute is absent from
 		// the schema (like in the vanilla AWS provider).
 		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() &&
