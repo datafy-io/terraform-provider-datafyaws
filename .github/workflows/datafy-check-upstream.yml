@@ -1,0 +1,158 @@
+name: Datafy Check Upstream
+
+on:
+  schedule:
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: datafy-check-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: hashicorp/terraform-provider-aws
+  UPSTREAM_URL: https://github.com/hashicorp/terraform-provider-aws.git
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch:
+          - release/4.x
+          - release/5.x
+          - release/6.x
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.branch }}
+
+      - name: Determine current upstream version
+        id: current
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+          if [ ! -f .aws-version ]; then
+            echo "::error::.aws-version not found at repo root on ${BRANCH}"
+            exit 1
+          fi
+          CURRENT=$(tr -d '[:space:]' < .aws-version)
+          [[ "$CURRENT" == v* ]] || CURRENT="v$CURRENT"
+          if ! [[ "$CURRENT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::.aws-version content '$CURRENT' on ${BRANCH} is not vX.Y.Z"
+            exit 1
+          fi
+          MAJOR=$(echo "$CURRENT" | sed -E 's/^v([0-9]+).*/\1/')
+          EXPECTED_MAJOR=$(echo "$BRANCH" | sed -E 's|release/([0-9]+)\.x|\1|')
+          if [ "$MAJOR" != "$EXPECTED_MAJOR" ]; then
+            echo "::warning::${BRANCH} .aws-version major is ${MAJOR}, expected ${EXPECTED_MAJOR}"
+          fi
+          {
+            echo "current=$CURRENT"
+            echo "major=$MAJOR"
+          } >> "$GITHUB_OUTPUT"
+          echo "Branch ${BRANCH} — current upstream: $CURRENT (major $MAJOR)"
+
+      - name: Get latest upstream v${{ steps.current.outputs.major }}.* tag
+        id: tags
+        run: |
+          set -euo pipefail
+          MAJOR="${{ steps.current.outputs.major }}"
+          LATEST=$(git ls-remote --tags --refs "$UPSTREAM_URL" "v${MAJOR}.*" \
+            | awk '{print $2}' \
+            | sed 's|refs/tags/||' \
+            | grep -E "^v${MAJOR}\.[0-9]+\.[0-9]+$" \
+            | sort -V \
+            | tail -1)
+          if [ -z "$LATEST" ]; then
+            echo "::error::No upstream v${MAJOR}.* tags found"
+            exit 1
+          fi
+          echo "Latest upstream v${MAJOR}.*: $LATEST"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Compare versions
+        id: compare
+        uses: madhead/semver-utils@v5
+        with:
+          version: ${{ steps.tags.outputs.latest }}
+          compare-to: ${{ steps.current.outputs.current }}
+          lenient: true
+
+      - name: Echo (would notify n8n)
+        if: steps.compare.outputs.comparison-result == '>'
+        run: |
+          echo "[${{ matrix.branch }}] behind upstream: current=${{ steps.current.outputs.current }} latest=${{ steps.tags.outputs.latest }}"
+          echo "Would POST to N8N_WEBHOOK_URL — webhook step is disabled."
+
+      - name: Build webhook payload
+        if: steps.compare.outputs.comparison-result == '>'
+        id: payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CUR="${{ steps.current.outputs.current }}"
+          MAJOR="${{ steps.current.outputs.major }}"
+          LATEST="${{ steps.tags.outputs.latest }}"
+          BRANCH="${{ matrix.branch }}"
+      
+          RELEASE_JSON=$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${LATEST}" 2>/dev/null || echo '{}')
+          RELEASE_URL=$(echo "$RELEASE_JSON" | jq -r '.html_url // empty')
+          RELEASED_AT=$(echo "$RELEASE_JSON" | jq -r '.published_at // empty')
+          if [ -z "$RELEASE_URL" ]; then
+            RELEASE_URL="https://github.com/${UPSTREAM_REPO}/releases/tag/${LATEST}"
+          fi
+      
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      
+          PAYLOAD=$(jq -n \
+            --arg event "upstream_release_available" \
+            --arg upstream_repo "$UPSTREAM_REPO" \
+            --arg fork_repo "$GITHUB_REPOSITORY" \
+            --arg release_branch "$BRANCH" \
+            --arg major "$MAJOR" \
+            --arg current "$CUR" \
+            --arg latest "$LATEST" \
+            --arg release_url "$RELEASE_URL" \
+            --arg released_at "$RELEASED_AT" \
+            --arg workflow_run_url "$RUN_URL" \
+            '{event:$event, upstream_repo:$upstream_repo, fork_repo:$fork_repo, release_branch:$release_branch, major:$major, current_version:$current, latest_version:$latest, release_url:$release_url, released_at:$released_at, workflow_run_url:$workflow_run_url}')
+      
+          echo "$PAYLOAD" | jq .
+          {
+            echo "payload<<EOF"
+            echo "$PAYLOAD"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send n8n webhook
+        if: steps.compare.outputs.comparison-result == '>'
+        env:
+          N8N_WEBHOOK_BASE_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_WEBHOOK_TOKEN:    ${{ secrets.N8N_WEBHOOK_TOKEN }}
+          PAYLOAD: ${{ steps.payload.outputs.payload }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body -sS --max-time 30 --connect-timeout 5 -X POST \
+            -H 'Content-Type: application/json' \
+            -H "X-Webhook-Token: ${N8N_WEBHOOK_TOKEN}" \
+            -d "$PAYLOAD" \
+            "${N8N_WEBHOOK_BASE_URL}/webhook/upstream-release"
+          echo "Webhook delivered for ${{ matrix.branch }}."
+          
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Datafy Upstream Check — \`${{ matrix.branch }}\`"
+            echo ""
+            echo "- Current (\`.aws-version\`): \`${{ steps.current.outputs.current }}\`"
+            echo "- Latest upstream v${{ steps.current.outputs.major }}.*: \`${{ steps.tags.outputs.latest }}\`"
+            echo "- Comparison (latest vs current): \`${{ steps.compare.outputs.comparison-result || 'n/a' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
