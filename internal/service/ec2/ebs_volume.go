@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/aws-sdk-go-base/v2/tfawserr"
+	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/id"
@@ -33,11 +34,13 @@ import (
 )
 
 var (
-	datafiedModifiableAttrs = []string{names.AttrSize, names.AttrIOPS, names.AttrThroughput}
-)
+	// datafyMutableAttrs are the attributes a datafied volume still accepts changes to, which
+	// reach Datafy as a volume modification rather than Terraform as an update.
+	datafyMutableAttrs = []string{names.AttrSize, names.AttrIOPS, names.AttrThroughput}
 
-const (
-	AttrAutoscalingNative = "autoscaling_native"
+	// datafyImmutableAttrs select whether and how a volume is datafied, which is decided when
+	// the volume is created and cannot be changed afterwards.
+	datafyImmutableAttrs = []string{datafy.AttrMode, datafy.AttrPerformanceArraySize}
 )
 
 // @SDKResource("aws_ebs_volume", name="EBS Volume")
@@ -52,6 +55,15 @@ func resourceEBSVolume() *schema.Resource {
 
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
+		},
+
+		SchemaVersion: 1,
+		StateUpgraders: []schema.StateUpgrader{
+			{
+				Type:    resourceEBSVolumeV0().CoreConfigSchema().ImpliedType(),
+				Upgrade: ebsVolumeStateUpgradeV0,
+				Version: 0,
+			},
 		},
 
 		Timeouts: &schema.ResourceTimeout{
@@ -70,7 +82,7 @@ func resourceEBSVolume() *schema.Resource {
 			},
 			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
 				changes := slices.DeleteFunc(diff.GetChangedKeysPrefix(""), func(s string) bool {
-					return strings.HasPrefix(s, "tags.") || slices.Contains(datafiedModifiableAttrs, s)
+					return strings.HasPrefix(s, "tags.") || slices.Contains(datafyMutableAttrs, s)
 				})
 				if len(changes) > 0 {
 					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
@@ -89,14 +101,29 @@ func resourceEBSVolume() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
-			// Do not set `Default: false` here: volumes provisioned by provider
-			// versions that predate this attribute hold nil for it in state, and a
-			// default would plan a phantom "nil -> false" change for them.
-			AttrAutoscalingNative: {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Description: "Create the volume as a Datafy native autoscaling volume instead of a standard EBS volume. " +
-					"This flag is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
+			// Do not give this a Default: volumes provisioned by provider versions that
+			// predate the attribute hold nil for it in state, and a default would plan a
+			// phantom "nil -> zero value" change for them.
+			datafy.AttrMode: {
+				Type:         schema.TypeString,
+				Optional:     true,
+				ValidateFunc: validation.StringInSlice(datafy.Modes, false),
+				Description: fmt.Sprintf("Create the volume as a Datafy volume optimized for `%[1]s` (capacity), `%[2]s`, or `%[3]s` (both), "+
+					"instead of a standard EBS volume. The performance modes are backed by an array, sized by `%[4]s`. "+
+					"This attribute is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
+					datafy.ModeAutoscaling, datafy.ModePerformance, datafy.ModeAutoscalingPerformance, datafy.AttrPerformanceArraySize),
+			},
+			// Sizes below the default array of two are not expressible: they are what a volume
+			// with no performance optimization already has, which omitting the mode asks for.
+			datafy.AttrPerformanceArraySize: {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				ValidateFunc: validation.IntInSlice(datafy.PerformanceArraySizes),
+				Description: fmt.Sprintf("Number of backing volumes in the Datafy performance array, one of %[1]v. Required by, and valid only with, a `%[2]s` of "+
+					"`%[3]s` or `%[4]s`. With an array, `%[5]s` and `%[6]s` state what the array delivers in total rather than per volume. "+
+					"This attribute is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
+					datafy.PerformanceArraySizes, datafy.AttrMode, datafy.ModePerformance, datafy.ModeAutoscalingPerformance,
+					names.AttrIOPS, names.AttrThroughput),
 			},
 			names.AttrAvailabilityZone: {
 				Type:     schema.TypeString,
@@ -284,10 +311,15 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		return diags
 	}
 
-	if value, ok := d.GetOk(AttrAutoscalingNative); ok && value.(bool) {
+	if datafyMode := d.Get(datafy.AttrMode).(string); datafyMode != "" {
+		arraySize := d.Get(datafy.AttrPerformanceArraySize).(int)
+		if err := validateDatafyMode(datafyMode, arraySize); err != nil {
+			return sdkdiag.AppendFromErr(diags, err)
+		}
+
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
-			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId),
+			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId), datafyMode, int32(arraySize),
 			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
@@ -319,13 +351,18 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		d.Set(names.AttrARN, arnVal.String())
 		d.Set(names.AttrAvailabilityZone, volume.AvailabilityZone)
 		d.Set(names.AttrEncrypted, volume.Encrypted)
-		d.Set(names.AttrIOPS, volume.Iops)
 		d.Set(names.AttrKMSKeyID, volume.KmsKeyId)
 		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
 		d.Set("outpost_arn", volume.OutpostArn)
 		d.Set(names.AttrSize, aws.ToInt32(input.Size))
-		d.Set(names.AttrThroughput, volume.Throughput)
 		d.Set(names.AttrType, volume.VolumeType)
+
+		// What the volume PRESENTS, which is what was asked for. An array's members are each
+		// provisioned at a share of it, so reading either off a member would plan a diff
+		// against the configuration on every run. Size is read back off the input for the same
+		// reason.
+		d.Set(names.AttrIOPS, aws.ToInt32(datafied.Iops))
+		d.Set(names.AttrThroughput, aws.ToInt32(datafied.Throughput))
 
 		setTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
 
@@ -433,9 +470,9 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
 
-	// autoscaling_native has no volume-modification semantics: the only change that
-	// reaches Update is its removal on offboarding, which only rewrites state.
-	if d.HasChangesExcept(names.AttrTags, names.AttrTagsAll, AttrAutoscalingNative) {
+	// The datafy attributes have no volume-modification semantics: the only change that
+	// reaches Update is their removal on offboarding, which only rewrites state.
+	if d.HasChangesExcept(append([]string{names.AttrTags, names.AttrTagsAll}, datafyImmutableAttrs...)...) {
 		// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
 		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
 		// and give back control to terraform
@@ -667,28 +704,98 @@ func waitDatafyVolumeModified(ctx context.Context, dc datafy.Client, id string, 
 	return err
 }
 
+// validateDatafyMode checks the mode against the array size. An array is what performance
+// optimization IS, so neither attribute means anything without the other. Datafy sizes the
+// array and resolves what the volume's performance means at that size — none of that
+// arithmetic is repeated here.
+func validateDatafyMode(datafyMode string, arraySize int) error {
+	switch {
+	case arraySize > 0 && !slices.Contains(datafy.PerformanceModes, datafyMode):
+		return fmt.Errorf("`%s` is only valid when `%s` is %q or %q", datafy.AttrPerformanceArraySize,
+			datafy.AttrMode, datafy.ModePerformance, datafy.ModeAutoscalingPerformance)
+	case arraySize == 0 && slices.Contains(datafy.PerformanceModes, datafyMode):
+		return fmt.Errorf("`%s` must be set when `%s` is %q", datafy.AttrPerformanceArraySize, datafy.AttrMode, datafyMode)
+	}
+
+	return nil
+}
+
+// datafyAttrsUnknown reports whether the configuration states a datafy attribute whose value is
+// not resolved yet.
+func datafyAttrsUnknown(rawConfig cty.Value) bool {
+	if rawConfig.IsNull() {
+		return false
+	}
+
+	for _, attr := range datafyImmutableAttrs {
+		if !rawConfig.Type().HasAttribute(attr) {
+			continue
+		}
+		if v := rawConfig.GetAttr(attr); !v.IsNull() && !v.IsKnown() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// datafyAttrIsSet reports whether a raw state value carries an active datafy setting. The
+// legacy SDK cannot store null for a primitive, so an attribute the configuration never held
+// reads back as false or 0 — indistinguishable from one nobody asked for, and not a setting
+// whose removal has anything to undo.
+func datafyAttrIsSet(v cty.Value) bool {
+	if v.IsNull() || !v.IsKnown() {
+		return false
+	}
+
+	switch v.Type() {
+	case cty.String:
+		return v.AsString() != ""
+	case cty.Number:
+		n, _ := v.AsBigFloat().Float64()
+		return n > 0
+	}
+
+	return false
+}
+
 func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
 	iops := diff.Get(names.AttrIOPS).(int)
 	multiAttachEnabled := diff.Get("multi_attach_enabled").(bool)
 	throughput := diff.Get(names.AttrThroughput).(int)
 	volumeType := awstypes.VolumeType(diff.Get(names.AttrType).(string))
 
-	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
+	datafyMode := diff.Get(datafy.AttrMode).(string)
+	arraySize := diff.Get(datafy.AttrPerformanceArraySize).(int)
+
+	// An array is what performance optimization IS, so the two attributes only make sense
+	// together. Datafy sizes the array and resolves what the volume's performance means at that
+	// size — none of that arithmetic is repeated here.
+	//
+	// A value interpolated from elsewhere is unknown during plan and reads back as the zero,
+	// which is indistinguishable from unset; Create settles the pair once both are known.
+	if !datafyAttrsUnknown(diff.GetRawConfig()) {
+		if err := validateDatafyMode(datafyMode, arraySize); err != nil {
+			return err
+		}
+	}
+
+	// Datafy owns the volume type of its volumes (always gp3), so `type` must be left unset.
 	// Check the raw config (not the planned value): `type` is Computed,
 	// so the plan carries over old/API values that the user never wrote.
-	if value, ok := diff.GetOk(AttrAutoscalingNative); ok && value.(bool) {
+	if datafyMode != "" {
 		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
 			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
-				return fmt.Errorf("`type` must not be set when %s is true", AttrAutoscalingNative)
+				return fmt.Errorf("`type` must not be set when `%s` is set", datafy.AttrMode)
 			}
 		}
 	}
 
-	// autoscaling_native is immutable once the volume exists: it can't be set,
-	// unset, or flipped. The only allowed config change is removing it once the
-	// volume is no longer datafied (offboarding). Volumes from provider versions
-	// that predate the attribute (nil in state) stay nil. Raw values are used
-	// because with no schema default an omitted attribute produces no plan diff.
+	// The datafy attributes are immutable once the volume exists: they can't be set, unset or
+	// changed. The only allowed config change is removing one once the volume is no longer
+	// datafied (offboarding). Volumes from provider versions that predate an attribute (nil in
+	// state) stay nil. Raw values are used because with no schema default an omitted attribute
+	// produces no plan diff.
 	if diff.Id() != "" {
 		// rawState is the prior state as Terraform stored it after the last apply,
 		// i.e. what the volume currently *is*, before any plan values are merged in.
@@ -698,22 +805,32 @@ func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDi
 		// "not configured" apart from "configured to the zero value".
 		// Both are null in edge cases (e.g. destroy has no config, import has no
 		// state), hence the IsNull checks.
-		// HasAttribute guards keep this working when the attribute is absent from
-		// the schema (like in the vanilla AWS provider).
-		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() &&
-			rawState.Type().HasAttribute(AttrAutoscalingNative) && rawConfig.Type().HasAttribute(AttrAutoscalingNative) {
-			stateVal := rawState.GetAttr(AttrAutoscalingNative)
-			configVal := rawConfig.GetAttr(AttrAutoscalingNative)
-			switch {
-			case configVal.IsKnown() && !configVal.IsNull() && (stateVal.IsNull() || !configVal.RawEquals(stateVal)):
-				return fmt.Errorf("changing `%s` of an existing EBS Volume (%s) is not allowed", AttrAutoscalingNative, diff.Id())
-			case configVal.IsNull() && !stateVal.IsNull():
-				dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-				if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
-					return fmt.Errorf("removing `%s` from EBS Volume (%s) is not allowed while the volume is datafied", AttrAutoscalingNative, diff.Id())
+		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() {
+			for _, attr := range datafyImmutableAttrs {
+				// HasAttribute guards keep this working when the attribute is absent from
+				// the schema (like in the vanilla AWS provider).
+				if !rawState.Type().HasAttribute(attr) || !rawConfig.Type().HasAttribute(attr) {
+					continue
 				}
-				// Offboarding: the removal is allowed to apply. The legacy SDK writes the
-				// zero value, so the attribute ends up as false in state.
+
+				stateVal := rawState.GetAttr(attr)
+				configVal := rawConfig.GetAttr(attr)
+				switch {
+				case configVal.IsKnown() && !configVal.IsNull() && (stateVal.IsNull() || !configVal.RawEquals(stateVal)):
+					return fmt.Errorf("changing `%s` of an existing EBS Volume (%s) is not allowed", attr, diff.Id())
+				// A removal is only a withdrawal when the attribute carried a setting. The
+				// legacy SDK stores the zero value for one the configuration never held, so
+				// on a volume that asked for a mode without an array — or on a plain EBS
+				// volume, which holds the zero for both — that zero is nobody's setting to
+				// give up, and reading it as one fails every plan they make.
+				case configVal.IsNull() && datafyAttrIsSet(stateVal):
+					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
+					if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
+						return fmt.Errorf("removing `%s` from EBS Volume (%s) is not allowed while the volume is datafied", attr, diff.Id())
+					}
+					// Offboarding: the removal is allowed to apply. The legacy SDK writes the
+					// zero value, so the attribute ends up empty or 0 in state.
+				}
 			}
 		}
 	}

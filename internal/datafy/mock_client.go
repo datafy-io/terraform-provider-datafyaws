@@ -106,7 +106,7 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return restoredVolume, nil
 }
 
-func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*Volume, error) {
+func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, _ string, arraySize int32, tagz map[string]string) (*Volume, error) {
 	// AWS rejects synthetic vol-ids in DescribeVolumes with
 	// InvalidParameterValue, not InvalidVolume.NotFound. The provider's Read
 	// path only treats the latter as "missing → fall back to Datafy". Harvest
@@ -134,13 +134,24 @@ func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int6
 		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
 
-	for range 2 {
+	// A performance array states its performance as an array total and the members split it,
+	// standing in for how the API provisions them. Without an array size every member carries
+	// the whole stated number, across the pair a volume has always been built from.
+	memberIops, memberThroughput := iops, throughput
+	if arraySize > 0 {
+		memberIops = aws.Int32(aws.ToInt32(iops) / arraySize)
+		memberThroughput = aws.Int32(aws.ToInt32(throughput) / arraySize)
+	} else {
+		arraySize = 2
+	}
+
+	for range arraySize {
 		if _, err := m.ec2Client.CreateVolume(context.Background(), &ec2.CreateVolumeInput{
 			AvailabilityZone: aws.String(availabilityZone),
 			Size:             aws.Int32(int32(diskSize)),
 			VolumeType:       types.VolumeTypeGp3,
-			Iops:             iops,
-			Throughput:       throughput,
+			Iops:             memberIops,
+			Throughput:       memberThroughput,
 			TagSpecifications: []types.TagSpecification{
 				{ResourceType: types.ResourceTypeVolume, Tags: tags},
 			},
