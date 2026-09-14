@@ -15,7 +15,7 @@ const DefaultUrl = "https://iac.datafy.io"
 type Client interface {
 	GetVolume(volumeId string) (*Volume, error)
 	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
-	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*Volume, error)
+	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, datafyMode string, arraySize int32, tagz map[string]string) (*Volume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
 	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error
@@ -51,6 +51,11 @@ type createDatafiedVolumeProperties struct {
 	Encrypted        *bool  `json:"encrypted,omitempty"`
 	KmsKeyId         string `json:"kmsKeyId,omitempty"`
 	Tags             []tags `json:"tags,omitempty"`
+	// DatafyMode names which optimizations the volume is created with, and ArraySize the
+	// number of backing volumes a performance array has. Both are passed through as stated:
+	// what they mean for the volume's size and performance is the API's to resolve.
+	DatafyMode string `json:"datafyMode,omitempty"`
+	ArraySize  int32  `json:"arraySize,omitempty"`
 }
 
 type createDatafiedVolumeRequest struct {
@@ -177,7 +182,7 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return nil, toError(resp)
 }
 
-func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*Volume, error) {
+func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, datafyMode string, arraySize int32, tagz map[string]string) (*Volume, error) {
 	tagsList := make([]tags, 0, len(tagz))
 	for k, v := range tagz {
 		tagsList = append(tagsList, tags{Key: k, Value: v})
@@ -191,6 +196,8 @@ func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int6
 			Encrypted:        encrypted,
 			KmsKeyId:         kmsKeyId,
 			Tags:             tagsList,
+			DatafyMode:       datafyMode,
+			ArraySize:        arraySize,
 		},
 	}
 

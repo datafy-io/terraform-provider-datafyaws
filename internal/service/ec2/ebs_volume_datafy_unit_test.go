@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 )
 
@@ -126,5 +127,31 @@ func TestWaitDatafyVolumeModified_apiError(t *testing.T) {
 	err := waitDatafyVolumeModified(context.Background(), client, "vol-abc123", "size", "10", "20", 5*time.Second)
 	if err == nil {
 		t.Fatal("expected an error from the API, got nil")
+	}
+}
+
+func TestDatafyAttrIsSet(t *testing.T) {
+	testCases := []struct {
+		name string
+		val  cty.Value
+		want bool
+	}{
+		{name: "null number", val: cty.NullVal(cty.Number)},
+		{name: "null string", val: cty.NullVal(cty.String)},
+		{name: "null number", val: cty.NullVal(cty.Number)},
+		{name: "unknown", val: cty.UnknownVal(cty.Number)},
+		// The zero the legacy SDK writes for an attribute the configuration never held.
+		{name: "empty string", val: cty.StringVal("")},
+		{name: "zero", val: cty.NumberIntVal(0)},
+		{name: "datafy mode", val: cty.StringVal(datafy.ModeAutoscaling), want: true},
+		{name: "array size", val: cty.NumberIntVal(4), want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := datafyAttrIsSet(tc.val); got != tc.want {
+				t.Fatalf("expected %t, got %t", tc.want, got)
+			}
+		})
 	}
 }
