@@ -35,13 +35,17 @@ import (
 )
 
 var (
-	// datafyMutableAttrs are the attributes a datafied volume still accepts changes to, which
-	// reach Datafy as a volume modification rather than Terraform as an update.
-	datafyMutableAttrs = []string{names.AttrSize, names.AttrIOPS, names.AttrThroughput}
+	// datafyAttrs select whether and how a volume is datafied.
+	datafyAttrs = []string{datafy.AttrMode, datafy.AttrPerformanceArraySize}
 
-	// datafyImmutableAttrs select whether and how a volume is datafied, which is decided when
-	// the volume is created and cannot be changed afterwards.
-	datafyImmutableAttrs = []string{datafy.AttrMode, datafy.AttrPerformanceArraySize}
+	// datafyMutableAttrs are the attributes a datafied volume still accepts changes to, which
+	// reach Datafy as a volume modification rather than Terraform as an update. Resizing the
+	// array is one of them: the mode fixes whether a volume has an array, not how wide it is.
+	datafyMutableAttrs = []string{names.AttrSize, names.AttrIOPS, names.AttrThroughput, datafy.AttrPerformanceArraySize}
+
+	// datafyImmutableAttrs are decided when the volume is created and cannot be changed
+	// afterwards.
+	datafyImmutableAttrs = []string{datafy.AttrMode}
 )
 
 // @SDKResource("aws_ebs_volume", name="EBS Volume")
@@ -113,7 +117,7 @@ func resourceEBSVolume() *schema.Resource {
 				Optional:     true,
 				ValidateFunc: validation.StringInSlice(datafy.Modes, false),
 				Description: fmt.Sprintf("Create the volume as a Datafy volume optimized for `%[1]s` (capacity), `%[2]s`, or `%[3]s` (both), "+
-					"instead of a standard EBS volume. The performance modes are backed by an array, sized by `%[4]s`. "+
+					"instead of a standard EBS volume. The performance modes are backed by an array, sized by `%[4]s`, which can be resized later. "+
 					"This attribute is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
 					datafy.ModeAutoscaling, datafy.ModePerformance, datafy.ModeAutoscalingPerformance, datafy.AttrPerformanceArraySize),
 			},
@@ -125,7 +129,7 @@ func resourceEBSVolume() *schema.Resource {
 				ValidateFunc: validation.IntInSlice(datafy.PerformanceArraySizes),
 				Description: fmt.Sprintf("Number of backing volumes in the Datafy performance array, one of %[1]v. Required by, and valid only with, a `%[2]s` of "+
 					"`%[3]s` or `%[4]s`. With an array, `%[5]s` and `%[6]s` state what the array delivers in total rather than per volume. "+
-					"This attribute is immutable: it can't be set, unset, or changed on an existing volume; it can only be removed from the configuration once the volume is no longer datafied.",
+					"Changing it resizes the array in place; it can't be removed while the volume is in a performance mode, because `%[2]s` is itself immutable.",
 					datafy.PerformanceArraySizes, datafy.AttrMode, datafy.ModePerformance, datafy.ModeAutoscalingPerformance,
 					names.AttrIOPS, names.AttrThroughput),
 			},
@@ -491,7 +495,7 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
 			if datafyVolume.IsManaged {
-				var sizeGb, iops, throughput *int32
+				var sizeGb, iops, throughput, arraySize *int32
 				var cmpAttr, oldValue, newValue string
 				if d.HasChange(names.AttrIOPS) {
 					oldVal, newVal := d.GetChange(names.AttrIOPS)
@@ -514,10 +518,17 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 					sizeGb = aws.Int32(int32(newVal.(int)))
 					cmpAttr = names.AttrSize
 				}
-				if sizeGb == nil && iops == nil && throughput == nil {
+				if d.HasChange(datafy.AttrPerformanceArraySize) {
+					oldVal, newVal := d.GetChange(datafy.AttrPerformanceArraySize)
+					oldValue = strconv.Itoa(oldVal.(int))
+					newValue = strconv.Itoa(newVal.(int))
+					arraySize = aws.Int32(int32(newVal.(int)))
+					cmpAttr = datafy.AttrPerformanceArraySize
+				}
+				if sizeGb == nil && iops == nil && throughput == nil && arraySize == nil {
 					return append(diags, resourceEBSVolumeRead(ctx, d, meta)...)
 				}
-				if err := dc.ModifyVolume(d.Id(), sizeGb, iops, throughput); err != nil {
+				if err := dc.ModifyVolume(d.Id(), sizeGb, iops, throughput, arraySize); err != nil {
 					return sdkdiag.AppendErrorf(diags, "modifying datafied EBS Volume (%s): %s", d.Id(), err)
 				}
 				if err := waitDatafyVolumeModified(ctx, dc, d.Id(), cmpAttr, oldValue, newValue, d.Timeout(schema.TimeoutUpdate)); err != nil {
@@ -690,7 +701,7 @@ func waitDatafyVolumeModified(ctx context.Context, dc datafy.Client, id string, 
 		Pending: []string{oldValue},
 		Target:  []string{newValue},
 		Refresh: func(ctx context.Context) (any, string, error) {
-			if attr != names.AttrSize && attr != names.AttrIOPS && attr != names.AttrThroughput {
+			if !slices.Contains(datafyMutableAttrs, attr) {
 				return nil, "", fmt.Errorf("unsupported attribute: %s", attr)
 			}
 			volume, err := dc.GetVolume(id)
@@ -704,6 +715,8 @@ func waitDatafyVolumeModified(ctx context.Context, dc datafy.Client, id string, 
 				return volume, strconv.Itoa(int(*volume.Iops)), nil
 			case names.AttrThroughput:
 				return volume, strconv.Itoa(int(*volume.Throughput)), nil
+			case datafy.AttrPerformanceArraySize:
+				return volume, strconv.Itoa(int(volume.ArraySize)), nil
 			default:
 				return nil, "", fmt.Errorf("unsupported attribute: %s", attr)
 			}
@@ -739,7 +752,7 @@ func datafyAttrsUnknown(rawConfig cty.Value) bool {
 		return false
 	}
 
-	for _, attr := range datafyImmutableAttrs {
+	for _, attr := range datafyAttrs {
 		if !rawConfig.Type().HasAttribute(attr) {
 			continue
 		}

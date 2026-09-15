@@ -18,7 +18,7 @@ type Client interface {
 	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, datafyMode string, arraySize int32, tagz map[string]string) (*Volume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
-	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error
+	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32, arraySize *int32) error
 }
 
 type tags struct {
@@ -76,6 +76,9 @@ type modifyVolumeRequest struct {
 	VolumeSizeGb     *int32 `json:"volumeSizeGb,omitempty"`
 	VolumeIops       *int32 `json:"volumeIops,omitempty"`
 	VolumeThroughput *int32 `json:"volumeThroughput,omitempty"`
+	// ArraySize resizes the performance array. Datafy redistributes the volume across the new
+	// member count; the sizes it accepts are PerformanceArraySizes.
+	ArraySize *int32 `json:"arraySize,omitempty"`
 }
 
 type errorResponse struct {
@@ -255,11 +258,12 @@ func (c *ClientImpl) DetachVolume(instanceId string, volumeId string) error {
 	return fmt.Errorf("%s", resp.Status)
 }
 
-func (c *ClientImpl) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+func (c *ClientImpl) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32, arraySize *int32) error {
 	request := modifyVolumeRequest{
 		VolumeSizeGb:     sizeGb,
 		VolumeIops:       iops,
 		VolumeThroughput: throughput,
+		ArraySize:        arraySize,
 	}
 
 	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/modify", volumeId), request)

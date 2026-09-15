@@ -171,6 +171,7 @@ func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int6
 		IsManaged:  true,
 		IsDatafied: true,
 		HasSource:  false,
+		ArraySize:  arraySize,
 	}
 	m.SetVolume(sourceVolumeId, source)
 	return source, nil
@@ -241,7 +242,7 @@ func (m *MockClient) DetachVolume(instanceId string, volumeId string) error {
 	}, time.Minute)
 }
 
-func (m *MockClient) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+func (m *MockClient) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32, arraySize *int32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -254,6 +255,9 @@ func (m *MockClient) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, t
 		}
 		if throughput != nil {
 			vol.Throughput = throughput
+		}
+		if arraySize != nil {
+			vol.ArraySize = *arraySize
 		}
 	}
 
