@@ -14,16 +14,64 @@ const DefaultUrl = "https://iac.datafy.io"
 
 type Client interface {
 	GetVolume(volumeId string) (*Volume, error)
-	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
-	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, datafyMode string, arraySize int32, tagz map[string]string) (*Volume, error)
+	CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotRequest) (*RestoredVolume, error)
+	CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
-	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32, arraySize *int32) error
+	ModifyVolume(volumeId string, req ModifyVolumeRequest) error
+}
+
+// CreateVolumeRequest is what the create endpoint accepts, and nothing else. It deliberately
+// does not embed the EC2 CreateVolumeInput it is built from: most of that type has no meaning
+// here (the volume type is Datafy's to choose, a snapshot is a different endpoint), it grows
+// with the AWS SDK, and the field names and units differ anyway.
+//
+// With a performance array, Iops and Throughput are the totals the array must deliver rather
+// than per-member numbers. DatafyMode and ArraySize go out as stated; what they imply for the
+// volume's size and performance is Datafy's to resolve.
+type CreateVolumeRequest struct {
+	AvailabilityZone string
+	DiskSize         int64
+	Iops             *int32
+	Throughput       *int32
+	Encrypted        *bool
+	KmsKeyId         string
+	DatafyMode       string
+	ArraySize        int32
+	Tags             map[string]string
+}
+
+// CreateVolumeFromSnapshotRequest restores a Datafy snapshot into a new volume. The restored
+// volume's size comes from the snapshot, which is why there is no size to state.
+type CreateVolumeFromSnapshotRequest struct {
+	DatafySnapshotId string
+	AvailabilityZone string
+	Iops             int32
+	Throughput       int32
+	Tags             map[string]string
+}
+
+// ModifyVolumeRequest names the attributes a datafied volume accepts changes to. A nil field is
+// one this modification leaves alone, so the zero request asks for nothing.
+type ModifyVolumeRequest struct {
+	SizeGb     *int32
+	Iops       *int32
+	Throughput *int32
+	ArraySize  *int32
 }
 
 type tags struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+func tagsList(tagz map[string]string) []tags {
+	list := make([]tags, 0, len(tagz))
+	for k, v := range tagz {
+		list = append(list, tags{Key: k, Value: v})
+	}
+
+	return list
 }
 
 type createFromSnapshotsSource struct {
@@ -151,20 +199,16 @@ func (c *ClientImpl) GetVolume(volumeId string) (*Volume, error) {
 	return nil, fmt.Errorf(resp.Status)
 }
 
-func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
-	tagsList := make([]tags, 0, len(tagz))
-	for k, v := range tagz {
-		tagsList = append(tagsList, tags{Key: k, Value: v})
-	}
+func (c *ClientImpl) CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotRequest) (*RestoredVolume, error) {
 	request := createFromSnapshotsRequest{
 		Source: createFromSnapshotsSource{
-			DatafySnapshotId: datafySnapshotId,
+			DatafySnapshotId: req.DatafySnapshotId,
 		},
 		VolumeProperties: createFromSnapshotsVolumeProperties{
-			VolumeIops:       iops,
-			VolumeThroughput: throughput,
-			AvailabilityZone: availabilityZone,
-			Tags:             tagsList,
+			VolumeIops:       req.Iops,
+			VolumeThroughput: req.Throughput,
+			AvailabilityZone: req.AvailabilityZone,
+			Tags:             tagsList(req.Tags),
 		},
 	}
 
@@ -185,22 +229,18 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return nil, toError(resp)
 }
 
-func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, datafyMode string, arraySize int32, tagz map[string]string) (*Volume, error) {
-	tagsList := make([]tags, 0, len(tagz))
-	for k, v := range tagz {
-		tagsList = append(tagsList, tags{Key: k, Value: v})
-	}
+func (c *ClientImpl) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error) {
 	request := createDatafiedVolumeRequest{
 		VolumeProperties: createDatafiedVolumeProperties{
-			AvailabilityZone: availabilityZone,
-			DiskSize:         diskSize,
-			VolumeIops:       iops,
-			VolumeThroughput: throughput,
-			Encrypted:        encrypted,
-			KmsKeyId:         kmsKeyId,
-			Tags:             tagsList,
-			DatafyMode:       datafyMode,
-			ArraySize:        arraySize,
+			AvailabilityZone: req.AvailabilityZone,
+			DiskSize:         req.DiskSize,
+			VolumeIops:       req.Iops,
+			VolumeThroughput: req.Throughput,
+			Encrypted:        req.Encrypted,
+			KmsKeyId:         req.KmsKeyId,
+			Tags:             tagsList(req.Tags),
+			DatafyMode:       req.DatafyMode,
+			ArraySize:        req.ArraySize,
 		},
 	}
 
@@ -258,12 +298,12 @@ func (c *ClientImpl) DetachVolume(instanceId string, volumeId string) error {
 	return fmt.Errorf(resp.Status)
 }
 
-func (c *ClientImpl) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32, arraySize *int32) error {
+func (c *ClientImpl) ModifyVolume(volumeId string, req ModifyVolumeRequest) error {
 	request := modifyVolumeRequest{
-		VolumeSizeGb:     sizeGb,
-		VolumeIops:       iops,
-		VolumeThroughput: throughput,
-		ArraySize:        arraySize,
+		VolumeSizeGb:     req.SizeGb,
+		VolumeIops:       req.Iops,
+		VolumeThroughput: req.Throughput,
+		ArraySize:        req.ArraySize,
 	}
 
 	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/modify", volumeId), request)

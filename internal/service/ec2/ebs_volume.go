@@ -261,9 +261,13 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 
 	if snapshotId := aws.ToString(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		restoredVolume, err := dc.CreateVolumeFromSnapshot(snapshotId,
-			aws.ToString(input.AvailabilityZone), aws.ToInt32(input.Iops), aws.ToInt32(input.Throughput),
-			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
+		restoredVolume, err := dc.CreateVolumeFromSnapshot(datafy.CreateVolumeFromSnapshotRequest{
+			DatafySnapshotId: snapshotId,
+			AvailabilityZone: aws.ToString(input.AvailabilityZone),
+			Iops:             aws.ToInt32(input.Iops),
+			Throughput:       aws.ToInt32(input.Throughput),
+			Tags:             datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume),
+		})
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating EBS Volume from datafy snapshot (%s): %s", snapshotId, err)
 		}
@@ -322,9 +326,17 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		}
 
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		datafied, err := dc.CreateDatafiedVolume(aws.ToString(input.AvailabilityZone), int64(aws.ToInt32(input.Size)),
-			input.Iops, input.Throughput, input.Encrypted, aws.ToString(input.KmsKeyId), datafyMode, int32(arraySize),
-			datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume))
+		datafied, err := dc.CreateDatafiedVolume(datafy.CreateVolumeRequest{
+			AvailabilityZone: aws.ToString(input.AvailabilityZone),
+			DiskSize:         int64(aws.ToInt32(input.Size)),
+			Iops:             input.Iops,
+			Throughput:       input.Throughput,
+			Encrypted:        input.Encrypted,
+			KmsKeyId:         aws.ToString(input.KmsKeyId),
+			DatafyMode:       datafyMode,
+			ArraySize:        int32(arraySize),
+			Tags:             datafy.TagsFrom(input.TagSpecifications, awstypes.ResourceTypeVolume),
+		})
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
 		}
@@ -483,40 +495,40 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		if datafyVolume, err := dc.GetVolume(d.Id()); err == nil {
 			if datafyVolume.IsManaged {
-				var sizeGb, iops, throughput, arraySize *int32
+				var modify datafy.ModifyVolumeRequest
 				var cmpAttr, oldValue, newValue string
 				if d.HasChange(names.AttrIOPS) {
 					oldVal, newVal := d.GetChange(names.AttrIOPS)
 					oldValue = strconv.Itoa(oldVal.(int))
 					newValue = strconv.Itoa(newVal.(int))
-					iops = aws.Int32(int32(newVal.(int)))
+					modify.Iops = aws.Int32(int32(newVal.(int)))
 					cmpAttr = names.AttrIOPS
 				}
 				if d.HasChange(names.AttrThroughput) {
 					oldVal, newVal := d.GetChange(names.AttrThroughput)
 					oldValue = strconv.Itoa(oldVal.(int))
 					newValue = strconv.Itoa(newVal.(int))
-					throughput = aws.Int32(int32(newVal.(int)))
+					modify.Throughput = aws.Int32(int32(newVal.(int)))
 					cmpAttr = names.AttrThroughput
 				}
 				if d.HasChange(names.AttrSize) {
 					oldVal, newVal := d.GetChange(names.AttrSize)
 					oldValue = strconv.Itoa(oldVal.(int))
 					newValue = strconv.Itoa(newVal.(int))
-					sizeGb = aws.Int32(int32(newVal.(int)))
+					modify.SizeGb = aws.Int32(int32(newVal.(int)))
 					cmpAttr = names.AttrSize
 				}
 				if d.HasChange(datafy.AttrPerformanceArraySize) {
 					oldVal, newVal := d.GetChange(datafy.AttrPerformanceArraySize)
 					oldValue = strconv.Itoa(oldVal.(int))
 					newValue = strconv.Itoa(newVal.(int))
-					arraySize = aws.Int32(int32(newVal.(int)))
+					modify.ArraySize = aws.Int32(int32(newVal.(int)))
 					cmpAttr = datafy.AttrPerformanceArraySize
 				}
-				if sizeGb == nil && iops == nil && throughput == nil && arraySize == nil {
+				if modify == (datafy.ModifyVolumeRequest{}) {
 					return append(diags, resourceEBSVolumeRead(ctx, d, meta)...)
 				}
-				if err := dc.ModifyVolume(d.Id(), sizeGb, iops, throughput, arraySize); err != nil {
+				if err := dc.ModifyVolume(d.Id(), modify); err != nil {
 					return sdkdiag.AppendErrorf(diags, "modifying datafied EBS Volume (%s): %s", d.Id(), err)
 				}
 				if err := waitDatafyVolumeModified(ctx, dc, d.Id(), cmpAttr, oldValue, newValue, d.Timeout(schema.TimeoutUpdate)); err != nil {
