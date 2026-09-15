@@ -137,7 +137,7 @@ func (m *MockClient) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, err
 	// A performance array states its performance as an array total and the members split it,
 	// standing in for how the API provisions them. Without an array size every member carries
 	// the whole stated number, across the pair a volume has always been built from.
-	arraySize := req.ArraySize
+	arraySize := req.PerformanceArraySize
 	memberIops, memberThroughput := req.Iops, req.Throughput
 	if arraySize > 0 {
 		memberIops = aws.Int32(aws.ToInt32(req.Iops) / arraySize)
@@ -169,10 +169,10 @@ func (m *MockClient) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, err
 			Iops:             req.Iops,
 			Throughput:       req.Throughput,
 		},
-		IsManaged:  true,
-		IsDatafied: true,
-		HasSource:  false,
-		ArraySize:  req.ArraySize,
+		IsManaged:            true,
+		IsDatafied:           true,
+		HasSource:            false,
+		PerformanceArraySize: req.PerformanceArraySize,
 	}
 	m.SetVolume(sourceVolumeId, source)
 	return source, nil
@@ -257,8 +257,8 @@ func (m *MockClient) ModifyVolume(volumeId string, req ModifyVolumeRequest) erro
 		if req.Throughput != nil {
 			vol.Throughput = req.Throughput
 		}
-		if req.ArraySize != nil {
-			vol.ArraySize = *req.ArraySize
+		if req.PerformanceArraySize != nil {
+			vol.PerformanceArraySize = *req.PerformanceArraySize
 		}
 	}
 
