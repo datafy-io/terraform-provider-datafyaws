@@ -20,6 +20,7 @@ type Volume struct {
 	IsManaged  bool
 	IsDatafied bool
 	ReplacedBy string
+	ArraySize  int32
 }
 
 func (v *Volume) UnmarshalJSON(data []byte) error {
@@ -33,6 +34,7 @@ func (v *Volume) UnmarshalJSON(data []byte) error {
 		SizeBytes  uint64 `json:"sizeBytes"`
 		Iops       int32  `json:"iops"`
 		Throughput int32  `json:"throughput"`
+		ArraySize  int32  `json:"arraySize"`
 	}{}
 	if err := json.Unmarshal(data, &iac); err != nil {
 		return err
@@ -44,6 +46,7 @@ func (v *Volume) UnmarshalJSON(data []byte) error {
 	v.IsManaged = iac.IsManaged
 	v.IsDatafied = iac.IsDatafied
 	v.ReplacedBy = iac.ReplacedBy
+	v.ArraySize = iac.ArraySize
 	v.Size = aws.Int32(int32(iac.SizeBytes / 1024 / 1024 / 1024))
 	v.Iops = aws.Int32(iac.Iops)
 	v.Throughput = aws.Int32(iac.Throughput)
