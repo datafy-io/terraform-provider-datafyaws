@@ -16,25 +16,25 @@ type RestoredVolume struct {
 type Volume struct {
 	*types.Volume
 
-	HasSource  bool
-	IsManaged  bool
-	IsDatafied bool
-	ReplacedBy string
-	ArraySize  int32
+	HasSource            bool
+	IsManaged            bool
+	IsDatafied           bool
+	ReplacedBy           string
+	PerformanceArraySize int32
 }
 
 func (v *Volume) UnmarshalJSON(data []byte) error {
 	iac := struct {
 		VolumeId string `json:"volumeId"`
 
-		HasSource  bool   `json:"hasSource"`
-		IsManaged  bool   `json:"isManaged"`
-		IsDatafied bool   `json:"isDatafied"`
-		ReplacedBy string `json:"replacedBy"`
-		SizeBytes  uint64 `json:"sizeBytes"`
-		Iops       int32  `json:"iops"`
-		Throughput int32  `json:"throughput"`
-		ArraySize  int32  `json:"arraySize"`
+		HasSource            bool   `json:"hasSource"`
+		IsManaged            bool   `json:"isManaged"`
+		IsDatafied           bool   `json:"isDatafied"`
+		ReplacedBy           string `json:"replacedBy"`
+		SizeBytes            uint64 `json:"sizeBytes"`
+		Iops                 int32  `json:"iops"`
+		Throughput           int32  `json:"throughput"`
+		PerformanceArraySize int32  `json:"performanceArraySize"`
 	}{}
 	if err := json.Unmarshal(data, &iac); err != nil {
 		return err
@@ -46,7 +46,7 @@ func (v *Volume) UnmarshalJSON(data []byte) error {
 	v.IsManaged = iac.IsManaged
 	v.IsDatafied = iac.IsDatafied
 	v.ReplacedBy = iac.ReplacedBy
-	v.ArraySize = iac.ArraySize
+	v.PerformanceArraySize = iac.PerformanceArraySize
 	v.Size = aws.Int32(int32(iac.SizeBytes / 1024 / 1024 / 1024))
 	v.Iops = aws.Int32(iac.Iops)
 	v.Throughput = aws.Int32(iac.Throughput)
