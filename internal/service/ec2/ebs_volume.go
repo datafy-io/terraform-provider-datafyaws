@@ -72,6 +72,7 @@ func resourceEBSVolume() *schema.Resource {
 		},
 
 		CustomizeDiff: customdiff.Sequence(
+			resourceDatafyEBSVolumeCustomizeDiff,
 			resourceEBSVolumeCustomizeDiff,
 			func(_ context.Context, diff *schema.ResourceDiff, _ any) error {
 				if tags, ok := diff.Get(names.AttrTags).(map[string]any); ok {
@@ -321,7 +322,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		}
 
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-		datafied, err := dc.CreateDatafiedVolume(datafy.CreateVolumeRequest{
+		datafyVolume, err := dc.CreateDatafiedVolume(datafy.CreateVolumeRequest{
 			AvailabilityZone:     aws.ToString(input.AvailabilityZone),
 			DiskSize:             int64(aws.ToInt32(input.Size)),
 			Iops:                 input.Iops,
@@ -335,7 +336,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating datafied EBS Volume: %s", err)
 		}
-		d.SetId(aws.ToString(datafied.VolumeId))
+		d.SetId(aws.ToString(datafyVolume.VolumeId))
 
 		dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(d.Id()))
 		if err != nil {
@@ -366,11 +367,9 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
 		d.Set("outpost_arn", volume.OutpostArn)
 		d.Set(names.AttrType, volume.VolumeType)
-
-		// reading the values from volume that was provisioned via datafy will cause a diff.
-		d.Set(names.AttrSize, aws.ToInt32(input.Size))
-		d.Set(names.AttrIOPS, aws.ToInt32(input.Iops))
-		d.Set(names.AttrThroughput, aws.ToInt32(input.Throughput))
+		d.Set(names.AttrSize, aws.ToInt32(datafyVolume.Size))
+		d.Set(names.AttrIOPS, aws.ToInt32(datafyVolume.Iops))
+		d.Set(names.AttrThroughput, aws.ToInt32(datafyVolume.Throughput))
 
 		setTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
 
@@ -767,12 +766,9 @@ func datafyAttrsUnknown(rawConfig cty.Value) bool {
 	return false
 }
 
-func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
-	iops := diff.Get(names.AttrIOPS).(int)
-	multiAttachEnabled := diff.Get("multi_attach_enabled").(bool)
-	throughput := diff.Get(names.AttrThroughput).(int)
-	volumeType := awstypes.VolumeType(diff.Get(names.AttrType).(string))
-
+// resourceDatafyEBSVolumeCustomizeDiff holds every Datafy rule the EBS volume has, so
+// resourceEBSVolumeCustomizeDiff stays the upstream function and a rebase touches neither.
+func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
 	datafyMode := diff.Get(datafy.AttrMode).(string)
 	arraySize := diff.Get(datafy.AttrPerformanceArraySize).(int)
 
@@ -796,6 +792,14 @@ func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDi
 			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
 				return fmt.Errorf("`type` must not be set when `%s` is set", datafy.AttrMode)
 			}
+		}
+
+		// Owning it means saying so. Left unknown, the upstream rules read the type as neither
+		// gp3 nor io1/io2 and refuse the `iops` and `throughput` an array has to state — a
+		// configuration this resource would otherwise have no way to express, since the same
+		// rules refuse the type that would satisfy them.
+		if err := diff.SetNew(names.AttrType, string(awstypes.VolumeTypeGp3)); err != nil {
+			return err
 		}
 	}
 
@@ -844,6 +848,15 @@ func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDi
 			}
 		}
 	}
+
+	return nil
+}
+
+func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
+	iops := diff.Get(names.AttrIOPS).(int)
+	multiAttachEnabled := diff.Get("multi_attach_enabled").(bool)
+	throughput := diff.Get(names.AttrThroughput).(int)
+	volumeType := awstypes.VolumeType(diff.Get(names.AttrType).(string))
 
 	if diff.Id() == "" {
 		// Create.
