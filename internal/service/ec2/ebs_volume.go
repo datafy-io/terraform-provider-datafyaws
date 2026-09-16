@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -790,7 +791,7 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 	if datafyMode != "" {
 		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
 			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
-				return fmt.Errorf("`type` must not be set when `%s` is set", datafy.AttrMode)
+				return fmt.Errorf("`%s` must not be set when `%s` is set", names.AttrType, datafy.AttrMode)
 			}
 		}
 
@@ -820,6 +821,13 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 		// HasAttribute guards keep this working when the attribute is absent from
 		// the schema (like in the vanilla AWS provider).
 		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() {
+			// Whether the volume is datafied is one question however many attributes ask it,
+			// and it is only asked at all when one of them is being removed — so the lookup is
+			// both lazy and made once.
+			getVolume := sync.OnceValues(func() (*datafy.Volume, error) {
+				return meta.(*conns.AWSClient).DatafyClient(ctx).GetVolume(diff.Id())
+			})
+
 			for _, attr := range datafyAttrs {
 				// HasAttribute guards keep this working when the attribute is absent from
 				// the schema (like in the vanilla AWS provider).
@@ -838,8 +846,7 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 				// holds the zero for both — that zero is nobody's setting to give up, and
 				// reading it as one fails every plan they make.
 				case configVal.IsNull() && datafyAttrIsSet(stateVal):
-					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
-					if datafyVolume, err := dc.GetVolume(diff.Id()); err == nil && datafyVolume.IsManaged {
+					if datafyVolume, err := getVolume(); err == nil && datafyVolume.IsManaged {
 						return fmt.Errorf("removing `%s` from EBS Volume (%s) is not allowed while the volume is datafied", attr, diff.Id())
 					}
 					// Offboarding: the removal is allowed to apply. The legacy SDK writes the
