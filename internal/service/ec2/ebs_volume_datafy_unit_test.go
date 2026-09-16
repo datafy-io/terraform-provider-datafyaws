@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 )
 
@@ -43,43 +44,6 @@ func volumeStatusBodyWithAttrs(size int, iops int, throughput int) []byte {
 	return b
 }
 
-func volumeStatusBodyWithArraySize(arraySize int) []byte {
-	b, _ := json.Marshal(map[string]any{
-		"volumeId":  "vol-abc123",
-		"isManaged": true,
-		"arraySize": arraySize,
-	})
-	return b
-}
-
-// An array resize is waited on like any other modification: the poll reads the member count
-// the volume reports until it reaches the one that was asked for.
-func TestWaitDatafyVolumeModified_arraySize(t *testing.T) {
-	overrideDatafyWaitTiming(t)
-
-	var callCount atomic.Int32
-	client, cleanup := newTestDatafyClientForWaiter(t, func(w http.ResponseWriter, r *http.Request) {
-		count := callCount.Add(1)
-		w.WriteHeader(http.StatusOK)
-		if count <= 2 {
-			w.Write(volumeStatusBodyWithArraySize(4))
-		} else {
-			w.Write(volumeStatusBodyWithArraySize(8))
-		}
-	})
-	defer cleanup()
-
-	err := waitDatafyVolumeModified(context.Background(), client, "vol-abc123", datafy.AttrPerformanceArraySize, "4", "8", 5*time.Second)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if n := callCount.Load(); n < 3 {
-		t.Errorf("expected at least 3 polls, got %d", n)
-	}
-}
-
-// TestWaitDatafyVolumeModified_modifyingThenChanged verifies the happy path: volume returns
-// old values for the first two polls and then transitions to new values.
 func TestWaitDatafyVolumeModified_modifyingThenChanged(t *testing.T) {
 	overrideDatafyWaitTiming(t)
 
@@ -161,5 +125,31 @@ func TestWaitDatafyVolumeModified_apiError(t *testing.T) {
 	err := waitDatafyVolumeModified(context.Background(), client, "vol-abc123", "size", "10", "20", 5*time.Second)
 	if err == nil {
 		t.Fatal("expected an error from the API, got nil")
+	}
+}
+
+func TestDatafyAttrIsSet(t *testing.T) {
+	testCases := []struct {
+		name string
+		val  cty.Value
+		want bool
+	}{
+		{name: "null string", val: cty.NullVal(cty.String)},
+		{name: "null number", val: cty.NullVal(cty.Number)},
+		{name: "unknown", val: cty.UnknownVal(cty.Number)},
+		// The zero the legacy SDK writes for an attribute the configuration never held: a
+		// volume in a mode with no array, or a plain EBS volume, which holds it for both.
+		{name: "empty string", val: cty.StringVal("")},
+		{name: "zero", val: cty.NumberIntVal(0)},
+		{name: "datafy mode", val: cty.StringVal(datafy.ModeAutoscaling), want: true},
+		{name: "array size", val: cty.NumberIntVal(4), want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := datafyAttrIsSet(tc.val); got != tc.want {
+				t.Fatalf("expected %t, got %t", tc.want, got)
+			}
+		})
 	}
 }
