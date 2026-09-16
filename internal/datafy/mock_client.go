@@ -169,10 +169,9 @@ func (m *MockClient) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, err
 			Iops:             req.Iops,
 			Throughput:       req.Throughput,
 		},
-		IsManaged:            true,
-		IsDatafied:           true,
-		HasSource:            false,
-		PerformanceArraySize: req.PerformanceArraySize,
+		IsManaged:  true,
+		IsDatafied: true,
+		HasSource:  false,
 	}
 	m.SetVolume(sourceVolumeId, source)
 	return source, nil
@@ -256,9 +255,6 @@ func (m *MockClient) ModifyVolume(volumeId string, req ModifyVolumeRequest) erro
 		}
 		if req.Throughput != nil {
 			vol.Throughput = req.Throughput
-		}
-		if req.PerformanceArraySize != nil {
-			vol.PerformanceArraySize = *req.PerformanceArraySize
 		}
 	}
 

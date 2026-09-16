@@ -42,10 +42,9 @@ type CreateVolumeFromSnapshotRequest struct {
 }
 
 type ModifyVolumeRequest struct {
-	SizeGb               *int32
-	Iops                 *int32
-	Throughput           *int32
-	PerformanceArraySize *int32
+	SizeGb     *int32
+	Iops       *int32
+	Throughput *int32
 }
 
 type tags struct {
@@ -106,10 +105,9 @@ type detachVolumeRequest struct {
 }
 
 type modifyVolumeRequest struct {
-	VolumeSizeGb         *int32 `json:"volumeSizeGb,omitempty"`
-	VolumeIops           *int32 `json:"volumeIops,omitempty"`
-	VolumeThroughput     *int32 `json:"volumeThroughput,omitempty"`
-	PerformanceArraySize *int32 `json:"performanceArraySize,omitempty"`
+	VolumeSizeGb     *int32 `json:"volumeSizeGb,omitempty"`
+	VolumeIops       *int32 `json:"volumeIops,omitempty"`
+	VolumeThroughput *int32 `json:"volumeThroughput,omitempty"`
 }
 
 type errorResponse struct {
@@ -283,10 +281,9 @@ func (c *ClientImpl) DetachVolume(instanceId string, volumeId string) error {
 
 func (c *ClientImpl) ModifyVolume(volumeId string, req ModifyVolumeRequest) error {
 	request := modifyVolumeRequest{
-		VolumeSizeGb:         req.SizeGb,
-		VolumeIops:           req.Iops,
-		VolumeThroughput:     req.Throughput,
-		PerformanceArraySize: req.PerformanceArraySize,
+		VolumeSizeGb:     req.SizeGb,
+		VolumeIops:       req.Iops,
+		VolumeThroughput: req.Throughput,
 	}
 
 	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/modify", volumeId), request)
