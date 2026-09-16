@@ -835,9 +835,6 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 		// HasAttribute guards keep this working when the attribute is absent from
 		// the schema (like in the vanilla AWS provider).
 		if rawState, rawConfig := diff.GetRawState(), diff.GetRawConfig(); !rawState.IsNull() && !rawConfig.IsNull() {
-			// Whether the volume is datafied is one question however many attributes ask it,
-			// and it is only asked at all when one of them is being removed — so the lookup is
-			// both lazy and made once.
 			getVolume := sync.OnceValues(func() (*datafy.Volume, error) {
 				return meta.(*conns.AWSClient).DatafyClient(ctx).GetVolume(diff.Id())
 			})
