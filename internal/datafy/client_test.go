@@ -58,7 +58,7 @@ func TestModifyVolume_success(t *testing.T) {
 
 	// Call ModifyVolume
 	sizeGb := int32(100)
-	err := client.ModifyVolume("vol-abc123", &sizeGb, nil, nil)
+	err := client.ModifyVolume("vol-abc123", ModifyVolumeRequest{SizeGb: &sizeGb})
 
 	// Assert no error
 	if err != nil {
@@ -77,7 +77,7 @@ func TestModifyVolume_apiError(t *testing.T) {
 
 	// Call ModifyVolume
 	sizeGb := int32(100)
-	err := client.ModifyVolume("vol-abc123", &sizeGb, nil, nil)
+	err := client.ModifyVolume("vol-abc123", ModifyVolumeRequest{SizeGb: &sizeGb})
 
 	// Assert error message equals expected message
 	if err == nil {
