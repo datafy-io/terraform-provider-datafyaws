@@ -966,8 +966,6 @@ resource "aws_ebs_volume" "test" {
 `, rName))
 }
 
-// testAccDatafyEBSVolumeConfig renders a volume carrying whatever attributes it is given, so a
-// call with none of them is a plain EBS volume.
 func testAccDatafyEBSVolumeConfig(rName string, attrs ...string) string {
 	var body string
 	for _, attr := range attrs {
