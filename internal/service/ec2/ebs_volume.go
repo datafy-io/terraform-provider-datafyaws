@@ -771,19 +771,6 @@ func datafyAttrsUnknown(rawConfig cty.Value) bool {
 // resourceEBSVolumeCustomizeDiff stays the upstream function and a rebase touches neither.
 func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDiff, meta any) error {
 	datafyMode := diff.Get(datafy.AttrMode).(string)
-	arraySize := diff.Get(datafy.AttrPerformanceArraySize).(int)
-
-	// An array is what performance optimization IS, so the two attributes only make sense
-	// together. Datafy sizes the array and resolves what the volume's performance means at that
-	// size — none of that arithmetic is repeated here.
-	//
-	// A value interpolated from elsewhere is unknown during plan and reads back as the zero,
-	// which is indistinguishable from unset; Create settles the pair once both are known.
-	if !datafyAttrsUnknown(diff.GetRawConfig()) {
-		if err := validateDatafyMode(datafyMode, arraySize); err != nil {
-			return err
-		}
-	}
 
 	// Datafy owns the volume type of its volumes (always gp3), so `type` must be left unset.
 	// Check the raw config (not the planned value): `type` is Computed,
@@ -850,6 +837,19 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 					// zero value, so the attribute ends up empty or 0 in state.
 				}
 			}
+		}
+	}
+
+	// An array is what performance optimization IS, so the two attributes only make sense
+	// together. Datafy sizes the array and resolves what the volume's performance means at that
+	// size — none of that arithmetic is repeated here.
+	//
+	// A value interpolated from elsewhere is unknown during plan and reads back as the zero,
+	// which is indistinguishable from unset; Create settles the pair once both are known.
+	if !datafyAttrsUnknown(diff.GetRawConfig()) {
+		arraySize := diff.Get(datafy.AttrPerformanceArraySize).(int)
+		if err := validateDatafyMode(datafyMode, arraySize); err != nil {
+			return err
 		}
 	}
 
