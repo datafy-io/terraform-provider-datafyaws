@@ -12,6 +12,7 @@ import (
 
 	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/go-cty/cty"
+	"github.com/hashicorp/go-cty/cty/gocty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
@@ -166,9 +167,8 @@ func TestDatafyAttrIsSet(t *testing.T) {
 // `throughput` an array must state unless the type is gp3. Nothing in the resource's own
 // validation catches that pair — only planning does.
 //
-// The raw-config rules (an explicitly configured `type`, immutability) are NOT reachable here:
-// terraform.NewResourceConfigRaw leaves CtyValue null, so GetRawConfig returns a null value and
-// those checks skip. Acceptance tests own them.
+// The configuration carries a real cty value, so the rules that read the raw config are
+// exercised too rather than skipped.
 func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 	resource := &schema.Resource{
 		Schema: resourceEBSVolume().Schema,
@@ -251,7 +251,8 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instanceDiff, err := resource.Diff(context.Background(), nil, terraform.NewResourceConfigRaw(tc.config), nil)
+			state, config := datafyTestConfig(t, resource, tc.config)
+			instanceDiff, err := resource.Diff(context.Background(), state, config, nil)
 
 			if tc.wantErr != "" {
 				if err == nil {
@@ -271,4 +272,34 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			}
 		})
 	}
+}
+
+// datafyTestConfig builds the configuration a plan is made from. The value has to be a real
+// cty object: CustomizeDiff reads attributes straight off the raw config, and one built without
+// a cty value panics as soon as anything asks for an attribute.
+func datafyTestConfig(t *testing.T, r *schema.Resource, raw map[string]any) (*terraform.InstanceState, *terraform.ResourceConfig) {
+	t.Helper()
+
+	block := r.CoreConfigSchema()
+	vals := make(map[string]cty.Value)
+	for name, attrTy := range block.ImpliedType().AttributeTypes() {
+		v, ok := raw[name]
+		if !ok {
+			vals[name] = cty.NullVal(attrTy)
+			continue
+		}
+
+		cv, err := gocty.ToCtyValue(v, attrTy)
+		if err != nil {
+			t.Fatalf("%s: %s", name, err)
+		}
+		vals[name] = cv
+	}
+
+	configVal := cty.ObjectVal(vals)
+
+	// The raw config reaches CustomizeDiff through the prior state, not through the
+	// ResourceConfig, and an empty ID still plans as a create.
+	return &terraform.InstanceState{RawConfig: configVal},
+		terraform.NewResourceConfigShimmed(configVal, block)
 }
