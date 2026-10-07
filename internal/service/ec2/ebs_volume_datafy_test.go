@@ -615,9 +615,10 @@ func TestAccDatafyEC2EBSVolume_performanceArrayImmutable(t *testing.T) {
 				ExpectError: regexache.MustCompile("changing `datafy_mode` of an existing EBS Volume"),
 			},
 			{
-				// Dropping the array without dropping the mode is not a configuration at all.
+				// Dropping the array alone is still dropping it. A datafied volume refuses the
+				// removal outright, before the mode and the array are weighed against each other.
 				Config:      testAccDatafyEBSVolumeConfig(rName, withDatafyMode(datafy.ModeAutoscalingPerformance)),
-				ExpectError: regexache.MustCompile("`datafy_performance_array_size` must be set when `datafy_mode` is"),
+				ExpectError: regexache.MustCompile("removing `datafy_performance_array_size` from EBS Volume .* is not allowed while the volume is datafied"),
 			},
 			{
 				Config:      testAccDatafyEBSVolumeConfig(rName),
