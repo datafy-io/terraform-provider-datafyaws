@@ -726,15 +726,6 @@ func waitDatafyVolumeModified(ctx context.Context, dc datafy.Client, id string, 
 // resourceEBSVolumeCustomizeDiff stays the upstream function and a rebase touches neither.
 func resourceDatafyEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff, meta interface{}) error {
 	datafyMode := diff.Get(datafy.AttrMode).(string)
-	arraySize := diff.Get(datafy.AttrPerformanceArraySize).(int)
-
-	// A value interpolated from elsewhere is unknown during plan and reads back as the zero,
-	// which is indistinguishable from unset; Create settles the pair once both are known.
-	if !datafyAttrsUnknown(diff.GetRawConfig()) {
-		if err := validateDatafyMode(datafyMode, arraySize); err != nil {
-			return err
-		}
-	}
 
 	// Datafy owns the volume type of its volumes (always gp3), so `type` must be left unset.
 	// Check the raw config (not the planned value): `type` is Computed,
@@ -791,6 +782,15 @@ func resourceDatafyEBSVolumeCustomizeDiff(_ context.Context, diff *schema.Resour
 					// zero value, so the attribute ends up empty or 0 in state.
 				}
 			}
+		}
+	}
+
+	// A value interpolated from elsewhere is unknown during plan and reads back as the zero,
+	// which is indistinguishable from unset; Create settles the pair once both are known.
+	if !datafyAttrsUnknown(diff.GetRawConfig()) {
+		arraySize := diff.Get(datafy.AttrPerformanceArraySize).(int)
+		if err := validateDatafyMode(datafyMode, arraySize); err != nil {
+			return err
 		}
 	}
 
