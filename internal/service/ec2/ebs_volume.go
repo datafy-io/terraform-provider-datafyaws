@@ -764,9 +764,17 @@ func resourceDatafyEBSVolumeCustomizeDiff(_ context.Context, diff *schema.Resour
 			// Whether the volume is datafied is one question however many attributes ask it,
 			// and it is only asked at all when one of them is being removed — so the lookup is
 			// both lazy and made once.
-			getVolume := sync.OnceValues(func() (*datafy.Volume, error) {
-				return meta.(*conns.AWSClient).DatafyClient().GetVolume(diff.Id())
-			})
+			var (
+				volumeOnce sync.Once
+				volume     *datafy.Volume
+				volumeErr  error
+			)
+			getVolume := func() (*datafy.Volume, error) {
+				volumeOnce.Do(func() {
+					volume, volumeErr = meta.(*conns.AWSClient).DatafyClient().GetVolume(diff.Id())
+				})
+				return volume, volumeErr
+			}
 
 			for _, attr := range datafyAttrs {
 				// HasAttribute guards keep this working when the attribute is absent from
