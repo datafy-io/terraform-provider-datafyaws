@@ -6,7 +6,7 @@ package ec2
 import (
 	"context"
 	"fmt"
-	"maps"
+	"reflect"
 	"testing"
 
 	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
@@ -53,7 +53,7 @@ func TestEBSVolumeStateUpgradeV0(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %s", err)
 			}
-			if !maps.Equal(toComparable(got), toComparable(tc.want)) {
+			if !reflect.DeepEqual(toComparable(got), toComparable(tc.want)) {
 				t.Fatalf("expected %v, got %v", tc.want, got)
 			}
 		})
