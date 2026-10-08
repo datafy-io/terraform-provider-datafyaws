@@ -141,15 +141,15 @@ func TestDatafyAttrIsSet(t *testing.T) {
 		val  cty.Value
 		want bool
 	}{
-		{name: "null string", val: cty.NullVal(cty.String)},
+		{name: "null bool", val: cty.NullVal(cty.Bool)},
 		{name: "null number", val: cty.NullVal(cty.Number)},
 		{name: "unknown", val: cty.UnknownVal(cty.Number)},
 		// The zero the legacy SDK writes for an attribute the configuration never held: a
-		// volume in a mode with no array, or a plain EBS volume, which holds it for both.
-		{name: "empty string", val: cty.StringVal("")},
+		// volume with no performance array, or a plain EBS volume, which holds it for all three.
+		{name: "false", val: cty.False},
 		{name: "zero", val: cty.NumberIntVal(0)},
-		{name: "datafy mode", val: cty.StringVal(datafy.ModeAutoscaling), want: true},
-		{name: "array size", val: cty.NumberIntVal(4), want: true},
+		{name: "true", val: cty.True, want: true},
+		{name: "performance tier", val: cty.NumberIntVal(4), want: true},
 	}
 
 	for _, tc := range testCases {
@@ -189,56 +189,57 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			config: map[string]any{
 				names.AttrAvailabilityZone: "us-east-1a",
 				names.AttrSize:             100,
-				datafy.AttrMode:            datafy.ModeAutoscaling,
+				datafy.AttrAutoscaling:     true,
 			},
 			wantType: string(awstypes.VolumeTypeGp3),
 		},
 		{
 			name: "a performance array states both",
 			config: map[string]any{
-				names.AttrAvailabilityZone:      "us-east-1a",
-				names.AttrSize:                  100,
-				datafy.AttrMode:                 datafy.ModePerformance,
-				datafy.AttrPerformanceArraySize: 4,
-				names.AttrIOPS:                  12000,
-				names.AttrThroughput:            500,
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 4,
+				names.AttrIOPS:             12000,
+				names.AttrThroughput:       500,
 			},
 			wantType: string(awstypes.VolumeTypeGp3),
 		},
 		{
 			name: "capacity and performance",
 			config: map[string]any{
-				names.AttrAvailabilityZone:      "us-east-1a",
-				names.AttrSize:                  100,
-				datafy.AttrMode:                 datafy.ModeAutoscalingPerformance,
-				datafy.AttrPerformanceArraySize: 8,
-				names.AttrIOPS:                  24000,
-				names.AttrThroughput:            1000,
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrAutoscaling:     true,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 8,
+				names.AttrIOPS:             24000,
+				names.AttrThroughput:       1000,
 			},
 			wantType: string(awstypes.VolumeTypeGp3),
 		},
 		{
-			name: "an array size needs a performance mode",
-			config: map[string]any{
-				names.AttrAvailabilityZone:      "us-east-1a",
-				names.AttrSize:                  100,
-				datafy.AttrMode:                 datafy.ModeAutoscaling,
-				datafy.AttrPerformanceArraySize: 4,
-			},
-			wantErr: "`datafy_performance_array_size` is only valid when `datafy_mode` is",
-		},
-		{
-			name: "a performance mode needs an array size",
+			name: "a tier needs the performance flag",
 			config: map[string]any{
 				names.AttrAvailabilityZone: "us-east-1a",
 				names.AttrSize:             100,
-				datafy.AttrMode:            datafy.ModePerformance,
+				datafy.AttrAutoscaling:     true,
+				datafy.AttrPerformanceTier: 4,
 			},
-			wantErr: "`datafy_performance_array_size` must be set when `datafy_mode` is",
+			wantErr: "`datafy_performance_tier` is only valid when `datafy_performance` is true",
 		},
 		{
-			// Without a mode the upstream rules are untouched: a plain volume still may not
-			// state iops without saying which type can carry them.
+			name: "performance needs a tier",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrPerformance:     true,
+			},
+			wantErr: "`datafy_performance_tier` must be set when `datafy_performance` is true",
+		},
+		{
+			// Without a datafy flag the upstream rules are untouched: a plain volume still
+			// may not state iops without saying which type can carry them.
 			name: "a plain volume keeps the upstream rules",
 			config: map[string]any{
 				names.AttrAvailabilityZone: "us-east-1a",
