@@ -5,11 +5,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/hashicorp/go-cty/cty"
+	"github.com/hashicorp/go-cty/cty/gocty"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
+	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 // newTestDatafyClientForWaiter creates a Datafy client pointed at a mock HTTP server.
@@ -43,8 +51,6 @@ func volumeStatusBodyWithAttrs(size int, iops int, throughput int) []byte {
 	return b
 }
 
-// TestWaitDatafyVolumeModified_modifyingThenChanged verifies the happy path: volume returns
-// old values for the first two polls and then transitions to new values.
 func TestWaitDatafyVolumeModified_modifyingThenChanged(t *testing.T) {
 	overrideDatafyWaitTiming(t)
 
@@ -127,4 +133,174 @@ func TestWaitDatafyVolumeModified_apiError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error from the API, got nil")
 	}
+}
+
+func TestDatafyAttrIsSet(t *testing.T) {
+	testCases := []struct {
+		name string
+		val  cty.Value
+		want bool
+	}{
+		{name: "null bool", val: cty.NullVal(cty.Bool)},
+		{name: "null number", val: cty.NullVal(cty.Number)},
+		{name: "unknown", val: cty.UnknownVal(cty.Number)},
+		// The zero the legacy SDK writes for an attribute the configuration never held: a
+		// volume with no performance array, or a plain EBS volume, which holds it for all three.
+		{name: "false", val: cty.False},
+		{name: "zero", val: cty.NumberIntVal(0)},
+		{name: "true", val: cty.True, want: true},
+		{name: "performance tier", val: cty.NumberIntVal(4), want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := datafyAttrIsSet(tc.val); got != tc.want {
+				t.Fatalf("expected %t, got %t", tc.want, got)
+			}
+		})
+	}
+}
+
+// TestDatafyCustomizeDiffCreatePlan runs the two CustomizeDiffs in the order the resource does,
+// against a create plan. It exists because the Datafy rules and the upstream ones can contradict
+// each other: Datafy refuses an explicit `type`, and the upstream rules refuse the `iops` and
+// `throughput` an array must state unless the type is gp3. Nothing in the resource's own
+// validation catches that pair — only planning does.
+//
+// The configuration carries a real cty value, so the rules that read the raw config are
+// exercised too rather than skipped.
+func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
+	resource := &schema.Resource{
+		Schema: resourceEBSVolume().Schema,
+		CustomizeDiff: customdiff.Sequence(
+			resourceDatafyEBSVolumeCustomizeDiff,
+			resourceEBSVolumeCustomizeDiff,
+		),
+	}
+
+	testCases := []struct {
+		name     string
+		config   map[string]any
+		wantType string
+		wantErr  string
+	}{
+		{
+			name: "autoscaling states no performance",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrAutoscaling:     true,
+			},
+			wantType: string(awstypes.VolumeTypeGp3),
+		},
+		{
+			name: "a performance array states both",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 4,
+				names.AttrIOPS:             12000,
+				names.AttrThroughput:       500,
+			},
+			wantType: string(awstypes.VolumeTypeGp3),
+		},
+		{
+			name: "capacity and performance",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrAutoscaling:     true,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 8,
+				names.AttrIOPS:             24000,
+				names.AttrThroughput:       1000,
+			},
+			wantType: string(awstypes.VolumeTypeGp3),
+		},
+		{
+			name: "a tier needs the performance flag",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrAutoscaling:     true,
+				datafy.AttrPerformanceTier: 4,
+			},
+			wantErr: "`datafy_performance_tier` is only valid when `datafy_performance` is true",
+		},
+		{
+			name: "performance needs a tier",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				datafy.AttrPerformance:     true,
+			},
+			wantErr: "`datafy_performance_tier` must be set when `datafy_performance` is true",
+		},
+		{
+			// Without a datafy flag the upstream rules are untouched: a plain volume still
+			// may not state iops without saying which type can carry them.
+			name: "a plain volume keeps the upstream rules",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSize:             100,
+				names.AttrIOPS:             12000,
+			},
+			wantErr: "'iops' must not be set when 'type' is ''",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			state, config := datafyTestConfig(t, resource, tc.config)
+			instanceDiff, err := resource.Diff(context.Background(), state, config, nil)
+
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got none", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got %q", tc.wantErr, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if got := instanceDiff.Attributes[names.AttrType].New; got != tc.wantType {
+				t.Fatalf("expected planned type %q, got %q", tc.wantType, got)
+			}
+		})
+	}
+}
+
+// datafyTestConfig builds the configuration a plan is made from. The value has to be a real
+// cty object: CustomizeDiff reads attributes straight off the raw config, and one built without
+// a cty value panics as soon as anything asks for an attribute.
+func datafyTestConfig(t *testing.T, r *schema.Resource, raw map[string]any) (*terraform.InstanceState, *terraform.ResourceConfig) {
+	t.Helper()
+
+	block := r.CoreConfigSchema()
+	vals := make(map[string]cty.Value)
+	for name, attrTy := range block.ImpliedType().AttributeTypes() {
+		v, ok := raw[name]
+		if !ok {
+			vals[name] = cty.NullVal(attrTy)
+			continue
+		}
+
+		cv, err := gocty.ToCtyValue(v, attrTy)
+		if err != nil {
+			t.Fatalf("%s: %s", name, err)
+		}
+		vals[name] = cv
+	}
+
+	configVal := cty.ObjectVal(vals)
+
+	// The raw config reaches CustomizeDiff through the prior state, not through the
+	// ResourceConfig, and an empty ID still plans as a create.
+	return &terraform.InstanceState{RawConfig: configVal},
+		terraform.NewResourceConfigShimmed(configVal, block)
 }
