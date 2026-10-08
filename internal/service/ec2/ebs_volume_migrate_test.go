@@ -21,16 +21,16 @@ func TestEBSVolumeStateUpgradeV0(t *testing.T) {
 	}{
 		{
 			// The migration that has to work: a volume created as native keeps being one, so
-			// a configuration naming its mode plans no change at all.
-			name:     "native volume gains the mode it always had",
+			// a configuration stating the optimization it has plans no change at all.
+			name:     "native volume gains the flag it always had",
 			rawState: map[string]any{names.AttrSize: 100, attrAutoscalingNativeV0: true},
-			want:     map[string]any{names.AttrSize: 100, datafy.AttrMode: datafy.ModeAutoscaling},
+			want:     map[string]any{names.AttrSize: 100, datafy.AttrAutoscaling: true},
 		},
 		{
 			// False is the zero the legacy SDK wrote for an attribute nobody configured, and
 			// it is also what an offboarded volume holds. Neither is datafied, which the
-			// mode's absence says.
-			name:     "false becomes no mode",
+			// flag's absence says.
+			name:     "false becomes no flag",
 			rawState: map[string]any{names.AttrSize: 100, attrAutoscalingNativeV0: false},
 			want:     map[string]any{names.AttrSize: 100},
 		},
@@ -40,10 +40,11 @@ func TestEBSVolumeStateUpgradeV0(t *testing.T) {
 			want:     map[string]any{names.AttrSize: 100},
 		},
 		{
-			// There was no way to ask for an array, so the size is never invented.
-			name:     "the array size stays unset",
+			// There was no way to ask for an array, so the performance attributes are never
+			// invented.
+			name:     "the performance attributes stay unset",
 			rawState: map[string]any{attrAutoscalingNativeV0: true},
-			want:     map[string]any{datafy.AttrMode: datafy.ModeAutoscaling},
+			want:     map[string]any{datafy.AttrAutoscaling: true},
 		},
 	}
 
