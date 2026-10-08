@@ -22,15 +22,16 @@ type Client interface {
 }
 
 type CreateVolumeRequest struct {
-	AvailabilityZone     string
-	DiskSize             int64
-	Iops                 *int32
-	Throughput           *int32
-	Encrypted            *bool
-	KmsKeyId             string
-	DatafyMode           string
-	PerformanceArraySize int32
-	Tags                 map[string]string
+	AvailabilityZone string
+	DiskSize         int64
+	Iops             *int32
+	Throughput       *int32
+	Encrypted        *bool
+	KmsKeyId         string
+	Autoscaling      bool
+	Performance      bool
+	PerformanceTier  int32
+	Tags             map[string]string
 }
 
 type CreateVolumeFromSnapshotRequest struct {
@@ -79,15 +80,16 @@ type createFromSnapshotsRequest struct {
 }
 
 type createDatafiedVolumeProperties struct {
-	AvailabilityZone     string `json:"availabilityZone"`
-	DiskSize             int64  `json:"diskSize"`
-	VolumeIops           *int32 `json:"volumeIops,omitempty"`
-	VolumeThroughput     *int32 `json:"volumeThroughput,omitempty"`
-	Encrypted            *bool  `json:"encrypted,omitempty"`
-	KmsKeyId             string `json:"kmsKeyId,omitempty"`
-	Tags                 []tags `json:"tags,omitempty"`
-	DatafyMode           string `json:"datafyMode,omitempty"`
-	PerformanceArraySize int32  `json:"performanceArraySize,omitempty"`
+	AvailabilityZone      string `json:"availabilityZone"`
+	DiskSize              int64  `json:"diskSize"`
+	VolumeIops            *int32 `json:"volumeIops,omitempty"`
+	VolumeThroughput      *int32 `json:"volumeThroughput,omitempty"`
+	Encrypted             *bool  `json:"encrypted,omitempty"`
+	KmsKeyId              string `json:"kmsKeyId,omitempty"`
+	Tags                  []tags `json:"tags,omitempty"`
+	DatafyAutoscaling     bool   `json:"datafyAutoscaling,omitempty"`
+	DatafyPerformance     bool   `json:"datafyPerformance,omitempty"`
+	DatafyPerformanceTier int32  `json:"datafyPerformanceTier,omitempty"`
 }
 
 type createDatafiedVolumeRequest struct {
@@ -213,15 +215,16 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotReques
 func (c *ClientImpl) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error) {
 	request := createDatafiedVolumeRequest{
 		VolumeProperties: createDatafiedVolumeProperties{
-			AvailabilityZone:     req.AvailabilityZone,
-			DiskSize:             req.DiskSize,
-			VolumeIops:           req.Iops,
-			VolumeThroughput:     req.Throughput,
-			Encrypted:            req.Encrypted,
-			KmsKeyId:             req.KmsKeyId,
-			Tags:                 tagsList(req.Tags),
-			DatafyMode:           req.DatafyMode,
-			PerformanceArraySize: req.PerformanceArraySize,
+			AvailabilityZone:      req.AvailabilityZone,
+			DiskSize:              req.DiskSize,
+			VolumeIops:            req.Iops,
+			VolumeThroughput:      req.Throughput,
+			Encrypted:             req.Encrypted,
+			KmsKeyId:              req.KmsKeyId,
+			Tags:                  tagsList(req.Tags),
+			DatafyAutoscaling:     req.Autoscaling,
+			DatafyPerformance:     req.Performance,
+			DatafyPerformanceTier: req.PerformanceTier,
 		},
 	}
 
