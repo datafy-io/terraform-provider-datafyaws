@@ -80,16 +80,16 @@ type createFromSnapshotsRequest struct {
 }
 
 type createDatafiedVolumeProperties struct {
-	AvailabilityZone      string `json:"availabilityZone"`
-	DiskSize              int64  `json:"diskSize"`
-	VolumeIops            *int32 `json:"volumeIops,omitempty"`
-	VolumeThroughput      *int32 `json:"volumeThroughput,omitempty"`
-	Encrypted             *bool  `json:"encrypted,omitempty"`
-	KmsKeyId              string `json:"kmsKeyId,omitempty"`
-	Tags                  []tags `json:"tags,omitempty"`
-	DatafyAutoscaling     bool   `json:"datafyAutoscaling,omitempty"`
-	DatafyPerformance     bool   `json:"datafyPerformance,omitempty"`
-	DatafyPerformanceTier int32  `json:"datafyPerformanceTier,omitempty"`
+	AvailabilityZone string `json:"availabilityZone"`
+	DiskSize         int64  `json:"diskSize"`
+	VolumeIops       *int32 `json:"volumeIops,omitempty"`
+	VolumeThroughput *int32 `json:"volumeThroughput,omitempty"`
+	Encrypted        *bool  `json:"encrypted,omitempty"`
+	KmsKeyId         string `json:"kmsKeyId,omitempty"`
+	Tags             []tags `json:"tags,omitempty"`
+	Autoscaling      bool   `json:"autoscaling,omitempty"`
+	Performance      bool   `json:"performance,omitempty"`
+	PerformanceTier  int32  `json:"performanceTier,omitempty"`
 }
 
 type createDatafiedVolumeRequest struct {
@@ -215,16 +215,16 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotReques
 func (c *ClientImpl) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error) {
 	request := createDatafiedVolumeRequest{
 		VolumeProperties: createDatafiedVolumeProperties{
-			AvailabilityZone:      req.AvailabilityZone,
-			DiskSize:              req.DiskSize,
-			VolumeIops:            req.Iops,
-			VolumeThroughput:      req.Throughput,
-			Encrypted:             req.Encrypted,
-			KmsKeyId:              req.KmsKeyId,
-			Tags:                  tagsList(req.Tags),
-			DatafyAutoscaling:     req.Autoscaling,
-			DatafyPerformance:     req.Performance,
-			DatafyPerformanceTier: req.PerformanceTier,
+			AvailabilityZone: req.AvailabilityZone,
+			DiskSize:         req.DiskSize,
+			VolumeIops:       req.Iops,
+			VolumeThroughput: req.Throughput,
+			Encrypted:        req.Encrypted,
+			KmsKeyId:         req.KmsKeyId,
+			Tags:             tagsList(req.Tags),
+			Autoscaling:      req.Autoscaling,
+			Performance:      req.Performance,
+			PerformanceTier:  req.PerformanceTier,
 		},
 	}
 
