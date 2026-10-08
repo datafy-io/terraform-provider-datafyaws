@@ -204,9 +204,9 @@ func (m *MockClient) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, err
 	}
 
 	// A performance array states its performance as an array total and the members split it,
-	// standing in for how the API provisions them. Without an array size every member carries
-	// the whole stated number, across the pair a volume has always been built from.
-	arraySize := req.PerformanceArraySize
+	// standing in for how the API provisions them. Without a tier every member carries the
+	// whole stated number, across the pair a volume has always been built from.
+	arraySize := req.PerformanceTier
 	memberIops, memberThroughput := req.Iops, req.Throughput
 	if arraySize > 0 {
 		memberIops = aws.Int32(aws.ToInt32(req.Iops) / arraySize)
