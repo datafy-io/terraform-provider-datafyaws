@@ -87,9 +87,9 @@ type createDatafiedVolumeProperties struct {
 	Encrypted        *bool  `json:"encrypted,omitempty"`
 	KmsKeyId         string `json:"kmsKeyId,omitempty"`
 	Tags             []tags `json:"tags,omitempty"`
-	Autoscaling      bool   `json:"autoscaling,omitempty"`
-	Performance      bool   `json:"performance,omitempty"`
-	PerformanceTier  int32  `json:"performanceTier,omitempty"`
+	Autoscaling      bool   `json:"autoscaling"`
+	Performance      bool   `json:"performance"`
+	PerformanceTier  int32  `json:"performanceTier"`
 }
 
 type createDatafiedVolumeRequest struct {
