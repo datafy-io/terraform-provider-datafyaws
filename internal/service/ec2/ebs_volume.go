@@ -676,12 +676,14 @@ func resourceEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.ResourceDi
 	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
 	// Check the raw config (not the planned value): `type` is Computed,
 	// so the plan carries over old/API values that the user never wrote.
+	// The iops/throughput/multi-attach validations below then run against gp3.
 	if value, ok := diff.GetOk(AttrAutoscalingNative); ok && value.(bool) {
 		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
 			if typeVal := rawConfig.GetAttr(names.AttrType); typeVal.IsKnown() && !typeVal.IsNull() {
 				return fmt.Errorf("`type` must not be set when %s is true", AttrAutoscalingNative)
 			}
 		}
+		volumeType = awstypes.VolumeTypeGp3
 	}
 
 	// autoscaling_native is immutable once the volume exists: it can't be set,
