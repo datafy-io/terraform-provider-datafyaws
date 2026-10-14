@@ -655,6 +655,44 @@ func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 	})
 }
 
+// Native volumes are always gp3 and `type` must be left unset, so non-default
+// iops and throughput must be accepted without an explicit type.
+func TestAccDatafyEC2EBSVolume_createNativeIopsThroughput(t *testing.T) {
+	ctx := acctest.Context(t)
+	var dv datafyVolume
+	resourceName := "aws_ebs_volume.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName, 4000, 250),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, "type", ec2.VolumeTypeGp3),
+					resource.TestCheckResourceAttr(resourceName, "iops", "4000"),
+					resource.TestCheckResourceAttr(resourceName, "throughput", "250"),
+				),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName, 5000, 300),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, "iops", "5000"),
+					resource.TestCheckResourceAttr(resourceName, "throughput", "300"),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
 // on a native (datafied) volume, flipping the flag to false errors, and removing it from the
 // configuration errors as long as the volume is datafied.
 func TestAccDatafyEC2EBSVolume_autoscalingNativeDatafiedNative(t *testing.T) {
@@ -890,6 +928,25 @@ resource "aws_ebs_volume" "test" {
   }
 }
 `, rName, autoscalingNative))
+}
+
+// gp3 allows at most 500 IOPS per GiB, so size must cover the requested iops.
+func testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName string, iops, throughput int) string {
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone  = data.aws_availability_zones.available.names[0]
+  size               = 10
+  iops               = %[2]d
+  throughput         = %[3]d
+  autoscaling_native = true
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName, iops, throughput))
 }
 
 // testAccDatafyEBSVolumeConfig_autoscalingNative without the flag, so the only
