@@ -685,19 +685,6 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 	throughput := diff.Get("throughput").(int)
 	volumeType := diff.Get("type").(string)
 
-	// Datafy owns the volume type of native volumes (always gp3), so `type` must be left unset.
-	// Check the raw config (not the planned value): `type` is Computed,
-	// so the plan carries over old/API values that the user never wrote.
-	// The iops/throughput/multi-attach validations below then run against gp3.
-	if value, ok := diff.GetOk(AttrAutoscalingNative); ok && value.(bool) {
-		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
-			if typeVal := rawConfig.GetAttr("type"); typeVal.IsKnown() && !typeVal.IsNull() {
-				return fmt.Errorf("`type` must not be set when %s is true", AttrAutoscalingNative)
-			}
-		}
-		volumeType = ec2.VolumeTypeGp3
-	}
-
 	// autoscaling_native is immutable once the volume exists: it can't be set,
 	// unset, or flipped. The only allowed config change is removing it once the
 	// volume is no longer datafied (offboarding). Volumes from provider versions
@@ -734,6 +721,11 @@ func resourceEBSVolumeCustomizeDiff(_ context.Context, diff *schema.ResourceDiff
 
 	if diff.Id() == "" {
 		// Create.
+
+		// Datafy owns the volume type of native volumes (always gp3), so `type` must be set to gp3.
+		if native := diff.Get(AttrAutoscalingNative).(bool); native && volumeType != ec2.VolumeTypeGp3 {
+			return fmt.Errorf("`type` must be set to %q when %s is true", ec2.VolumeTypeGp3, AttrAutoscalingNative)
+		}
 
 		// Iops is required for io1 and io2 volumes.
 		// The default for gp3 volumes is 3,000 IOPS.
