@@ -305,6 +305,43 @@ func TestAccDatafyEC2EBSVolume_createNative(t *testing.T) {
 	})
 }
 
+// Native volumes accept non-default iops and throughput.
+func TestAccDatafyEC2EBSVolume_createNativeIopsThroughput(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var dv datafyVolume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName, "gp3", 4000, 250),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, names.AttrType, string(awstypes.VolumeTypeGp3)),
+					resource.TestCheckResourceAttr(resourceName, names.AttrIOPS, "4000"),
+					resource.TestCheckResourceAttr(resourceName, names.AttrThroughput, "250"),
+				),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName, "gp3", 5000, 300),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, names.AttrIOPS, "5000"),
+					resource.TestCheckResourceAttr(resourceName, names.AttrThroughput, "300"),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
 // on a native (datafied) volume, flipping the flag to false errors, and removing it from the
 // configuration errors as long as the volume is datafied.
 func TestAccDatafyEC2EBSVolume_autoscalingNativeDatafiedNative(t *testing.T) {
@@ -499,8 +536,8 @@ func TestAccDatafyEC2EBSVolume_autoscalingNativeAddToExisting(t *testing.T) {
 	})
 }
 
-// Datafy owns the volume type of native volumes (always gp3), so any explicit
-// `type` (even gp3) must be rejected at plan time; only unset is allowed.
+// Datafy owns the volume type of native volumes (always gp3), so `type` must be
+// set to gp3; any other value, or omitting it, is rejected at plan time.
 func TestAccDatafyEC2EBSVolume_rejectAutoscalingNativeWithType(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
@@ -513,11 +550,15 @@ func TestAccDatafyEC2EBSVolume_rejectAutoscalingNativeWithType(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp2"),
-				ExpectError: regexache.MustCompile("`type` must not be set when autoscaling_native is true"),
+				ExpectError: regexache.MustCompile("`type` must be set to \"gp3\" when autoscaling_native is true"),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "gp3"),
-				ExpectError: regexache.MustCompile("`type` must not be set when autoscaling_native is true"),
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeType(rName, "io2"),
+				ExpectError: regexache.MustCompile("`type` must be set to \"gp3\" when autoscaling_native is true"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName, "", 0, 0),
+				ExpectError: regexache.MustCompile("`type` must be set to \"gp3\" when autoscaling_native is true"),
 			},
 		},
 	})
@@ -685,6 +726,7 @@ func undatafyNativeVolume(ctx context.Context, dv *datafyVolume, rName string) f
 			cvo, err := conn.CreateVolume(ctx, &awsec2.CreateVolumeInput{
 				AvailabilityZone: dv.volumes[0].AvailabilityZone,
 				Size:             aws.Int32(100),
+				VolumeType:       awstypes.VolumeTypeGp3,
 				TagSpecifications: []awstypes.TagSpecification{
 					{
 						ResourceType: awstypes.ResourceTypeVolume,
@@ -850,6 +892,7 @@ func testAccDatafyEBSVolumeConfig_autoscalingNative(rName string, autoscalingNat
 		fmt.Sprintf(`
 resource "aws_ebs_volume" "test" {
   availability_zone  = data.aws_availability_zones.available.names[0]
+  type               = "gp3"
   size               = 100
   autoscaling_native = %[2]t
 
@@ -860,6 +903,35 @@ resource "aws_ebs_volume" "test" {
 `, rName, autoscalingNative))
 }
 
+// testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput omits `type` when
+// volumeType is empty, and omits iops/throughput when they are 0.
+func testAccDatafyEBSVolumeConfig_autoscalingNativeIopsThroughput(rName, volumeType string, iops, throughput int) string {
+	var attrs string
+	if volumeType != "" {
+		attrs += fmt.Sprintf("  type               = %q\n", volumeType)
+	}
+	if iops != 0 {
+		attrs += fmt.Sprintf("  iops               = %d\n", iops)
+	}
+	if throughput != 0 {
+		attrs += fmt.Sprintf("  throughput         = %d\n", throughput)
+	}
+
+	return acctest.ConfigCompose(
+		acctest.ConfigAvailableAZsNoOptIn(),
+		fmt.Sprintf(`
+resource "aws_ebs_volume" "test" {
+  availability_zone  = data.aws_availability_zones.available.names[0]
+  size               = 100
+%[2]s  autoscaling_native = true
+
+  tags = {
+    Name = %[1]q
+  }
+}
+`, rName, attrs))
+}
+
 // testAccDatafyEBSVolumeConfig_autoscalingNative without the flag, so the only
 // config change when switching between them is the flag itself.
 func testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName string) string {
@@ -868,6 +940,7 @@ func testAccDatafyEBSVolumeConfig_autoscalingNativeRemoved(rName string) string 
 		fmt.Sprintf(`
 resource "aws_ebs_volume" "test" {
   availability_zone = data.aws_availability_zones.available.names[0]
+  type              = "gp3"
   size              = 100
 
   tags = {
