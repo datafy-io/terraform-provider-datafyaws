@@ -737,22 +737,10 @@ func resourceDatafyEBSVolumeCustomizeDiff(_ context.Context, diff *schema.Resour
 	autoscaling := diff.Get(datafy.AttrAutoscaling).(bool)
 	performance := diff.Get(datafy.AttrPerformance).(bool)
 
-	// Datafy owns the volume type of its volumes (always gp3), so `type` must be left unset.
-	// Check the raw config (not the planned value): `type` is Computed,
-	// so the plan carries over old/API values that the user never wrote.
-	if autoscaling || performance {
-		if rawConfig := diff.GetRawConfig(); !rawConfig.IsNull() {
-			if typeVal := rawConfig.GetAttr("type"); typeVal.IsKnown() && !typeVal.IsNull() {
-				return fmt.Errorf("`%s` must not be set when `%s` or `%s` is true", "type",
-					datafy.AttrAutoscaling, datafy.AttrPerformance)
-			}
-		}
-
-		// Owning it means saying so. Left unknown, the upstream rules read the type as neither
-		// gp3 nor io1/io2 and refuse the `iops` and `throughput` an array has to state.
-		if err := diff.SetNew("type", ec2.VolumeTypeGp3); err != nil {
-			return err
-		}
+	// Datafy owns the volume type of its volumes (always gp3), so `type` must be set to gp3.
+	if diff.Id() == "" && (autoscaling || performance) && diff.Get("type").(string) != ec2.VolumeTypeGp3 {
+		return fmt.Errorf("`%s` must be set to %q when `%s` or `%s` is true", "type", ec2.VolumeTypeGp3,
+			datafy.AttrAutoscaling, datafy.AttrPerformance)
 	}
 
 	// The datafy attributes are immutable once the volume exists: they can't be set, unset or

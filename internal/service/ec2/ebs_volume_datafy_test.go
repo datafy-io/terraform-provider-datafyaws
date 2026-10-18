@@ -655,10 +655,47 @@ func TestAccDatafyEC2EBSVolume_createAutoscaling(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true)),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckTagExists(ctx, &dv, "Name", rName),
+				),
+			},
+			{
+				RefreshState: true,
+			},
+		},
+	})
+}
+
+// An autoscaling volume accepts non-default iops and throughput, on create and on update.
+func TestAccDatafyEC2EBSVolume_createAutoscalingIopsThroughput(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var dv datafyVolume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withIopsThroughput(4000, 250)),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, "type", ec2.VolumeTypeGp3),
+					resource.TestCheckResourceAttr(resourceName, "iops", "4000"),
+					resource.TestCheckResourceAttr(resourceName, "throughput", "250"),
+				),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withIopsThroughput(5000, 300)),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+					resource.TestCheckResourceAttr(resourceName, "iops", "5000"),
+					resource.TestCheckResourceAttr(resourceName, "throughput", "300"),
 				),
 			},
 			{
@@ -685,7 +722,7 @@ func TestAccDatafyEC2EBSVolume_createPerformanceArray(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig(rName, withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withPerformance(true), withPerformanceTier(4, 12000, 500)),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckArraySize(&dv, 4),
@@ -697,7 +734,7 @@ func TestAccDatafyEC2EBSVolume_createPerformanceArray(t *testing.T) {
 				),
 			},
 			{
-				Config:   testAccDatafyEBSVolumeConfig(rName, withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				Config:   testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withPerformance(true), withPerformanceTier(4, 12000, 500)),
 				PlanOnly: true,
 			},
 		},
@@ -718,7 +755,7 @@ func TestAccDatafyEC2EBSVolume_createAutoscalingPerformance(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(6, 18000, 750)),
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(6, 18000, 750)),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					testAccDatafyCheckArraySize(&dv, 6),
@@ -728,7 +765,7 @@ func TestAccDatafyEC2EBSVolume_createAutoscalingPerformance(t *testing.T) {
 				),
 			},
 			{
-				Config:   testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(6, 18000, 750)),
+				Config:   testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(6, 18000, 750)),
 				PlanOnly: true,
 			},
 		},
@@ -749,22 +786,23 @@ func TestAccDatafyEC2EBSVolume_rejectPerformanceTierPairing(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformanceTier(4, 12000, 500)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformanceTier(4, 12000, 500)),
 				ExpectError: regexp.MustCompile("`datafy_performance_tier` is only valid when `datafy_performance` is true"),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withPerformance(true)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withPerformance(true)),
 				ExpectError: regexp.MustCompile("`datafy_performance_tier` must be set when `datafy_performance` is true"),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true)),
 				ExpectError: regexp.MustCompile("`datafy_performance_tier` must be set when `datafy_performance` is true"),
 			},
 		},
 	})
 }
 
-// Datafy owns the volume type of its volumes (always gp3).
+// Datafy owns the volume type of its volumes (always gp3), so `type` must be set to gp3; any
+// other value, or omitting it, is rejected at plan time.
 func TestAccDatafyEC2EBSVolume_rejectTypeOnDatafyVolume(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
@@ -777,11 +815,15 @@ func TestAccDatafyEC2EBSVolume_rejectTypeOnDatafyVolume(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withVolumeType("gp2")),
-				ExpectError: regexp.MustCompile("`type` must not be set when `datafy_autoscaling` or `datafy_performance` is true"),
+				ExpectError: regexp.MustCompile("`type` must be set to \"gp3\" when `datafy_autoscaling` or `datafy_performance` is true"),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withVolumeType("gp3")),
-				ExpectError: regexp.MustCompile("`type` must not be set when `datafy_autoscaling` or `datafy_performance` is true"),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withPerformance(true), withVolumeType("io2"), withPerformanceTier(4, 12000, 500)),
+				ExpectError: regexp.MustCompile("`type` must be set to \"gp3\" when `datafy_autoscaling` or `datafy_performance` is true"),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				ExpectError: regexp.MustCompile("`type` must be set to \"gp3\" when `datafy_autoscaling` or `datafy_performance` is true"),
 			},
 		},
 	})
@@ -802,13 +844,13 @@ func TestAccDatafyEC2EBSVolume_datafyFlagsDatafiedNative(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true)),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 				),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
 				ExpectError: regexp.MustCompile("changing `datafy_performance` of an existing EBS Volume"),
 			},
 			{
@@ -836,7 +878,7 @@ func TestAccDatafyEC2EBSVolume_datafyFlagsUndatafiedFromUI(t *testing.T) {
 		CheckDestroy:             testAccCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true)),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, "true"),
@@ -844,7 +886,7 @@ func TestAccDatafyEC2EBSVolume_datafyFlagsUndatafiedFromUI(t *testing.T) {
 			},
 			{
 				PreConfig:   undatafyNativeVolume(ctx, &dv, rName),
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
 				ExpectError: regexp.MustCompile("changing `datafy_performance` of an existing EBS Volume"),
 			},
 			{
@@ -941,24 +983,24 @@ func TestAccDatafyEC2EBSVolume_performanceTierImmutable(t *testing.T) {
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
 					resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformanceTier, "4"),
 				),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(8, 24000, 1000)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(8, 24000, 1000)),
 				ExpectError: regexp.MustCompile("changing `datafy_performance_tier` of an existing EBS Volume"),
 			},
 			{
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(false), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(false), withPerformance(true), withPerformanceTier(4, 12000, 500)),
 				ExpectError: regexp.MustCompile("changing `datafy_autoscaling` of an existing EBS Volume"),
 			},
 			{
 				// Dropping the tier alone is still dropping it. A datafied volume refuses the
 				// removal outright, before the flag and the tier are weighed against each other.
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true)),
+				Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true)),
 				ExpectError: regexp.MustCompile("removing `datafy_performance_tier` from EBS Volume .* is not allowed while the volume is datafied"),
 			},
 			{
@@ -1004,6 +1046,13 @@ func withAutoscaling(autoscaling bool) string {
 
 func withPerformance(performance bool) string {
 	return attr(datafy.AttrPerformance, strconv.FormatBool(performance))
+}
+
+func withIopsThroughput(iops, throughput int) string {
+	return strings.Join([]string{
+		attr("iops", strconv.Itoa(iops)),
+		attr("throughput", strconv.Itoa(throughput)),
+	}, "\n")
 }
 
 // withPerformanceTier sizes the array and states the performance it has to deliver. `iops` and

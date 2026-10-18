@@ -163,10 +163,10 @@ func TestDatafyAttrIsSet(t *testing.T) {
 }
 
 // TestDatafyCustomizeDiffCreatePlan runs the two CustomizeDiffs in the order the resource does,
-// against a create plan. It exists because the Datafy rules and the upstream ones can contradict
-// each other: Datafy refuses an explicit `type`, and the upstream rules refuse the `iops` and
-// `throughput` an array must state unless the type is gp3. Nothing in the resource's own
-// validation catches that pair — only planning does.
+// against a create plan. It exists because the Datafy rules and the upstream ones both constrain
+// `type`: Datafy requires gp3, and the upstream rules refuse the `iops` and `throughput` an array
+// must state unless the type is gp3. Nothing in the resource's own validation catches that
+// pair — only planning does.
 //
 // The configuration carries a real cty value, so the rules that read the raw config are
 // exercised too rather than skipped.
@@ -190,6 +190,7 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			config: map[string]any{
 				"availability_zone":    "us-east-1a",
 				"size":                 100,
+				"type":                 ec2.VolumeTypeGp3,
 				datafy.AttrAutoscaling: true,
 			},
 			wantType: ec2.VolumeTypeGp3,
@@ -199,6 +200,7 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			config: map[string]any{
 				"availability_zone":        "us-east-1a",
 				"size":                     100,
+				"type":                     ec2.VolumeTypeGp3,
 				datafy.AttrPerformance:     true,
 				datafy.AttrPerformanceTier: 4,
 				"iops":                     12000,
@@ -211,6 +213,7 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			config: map[string]any{
 				"availability_zone":        "us-east-1a",
 				"size":                     100,
+				"type":                     ec2.VolumeTypeGp3,
 				datafy.AttrAutoscaling:     true,
 				datafy.AttrPerformance:     true,
 				datafy.AttrPerformanceTier: 8,
@@ -224,6 +227,7 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			config: map[string]any{
 				"availability_zone":        "us-east-1a",
 				"size":                     100,
+				"type":                     ec2.VolumeTypeGp3,
 				datafy.AttrAutoscaling:     true,
 				datafy.AttrPerformanceTier: 4,
 			},
@@ -234,9 +238,30 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			config: map[string]any{
 				"availability_zone":    "us-east-1a",
 				"size":                 100,
+				"type":                 ec2.VolumeTypeGp3,
 				datafy.AttrPerformance: true,
 			},
 			wantErr: "`datafy_performance_tier` must be set when `datafy_performance` is true",
+		},
+		{
+			name: "a datafy volume needs a type",
+			config: map[string]any{
+				"availability_zone":    "us-east-1a",
+				"size":                 100,
+				datafy.AttrAutoscaling: true,
+			},
+			wantErr: "`type` must be set to \"gp3\" when `datafy_autoscaling` or `datafy_performance` is true",
+		},
+		{
+			name: "a datafy volume needs gp3",
+			config: map[string]any{
+				"availability_zone":        "us-east-1a",
+				"size":                     100,
+				"type":                     ec2.VolumeTypeGp2,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 4,
+			},
+			wantErr: "`type` must be set to \"gp3\" when `datafy_autoscaling` or `datafy_performance` is true",
 		},
 		{
 			// Without a datafy flag the upstream rules are untouched: a plain volume still
