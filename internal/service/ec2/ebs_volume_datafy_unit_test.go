@@ -162,6 +162,44 @@ func TestDatafyAttrIsSet(t *testing.T) {
 	}
 }
 
+func TestValidateDatafyThroughput(t *testing.T) {
+	testCases := []struct {
+		name        string
+		throughput  int
+		performance bool
+		tier        int
+		wantErr     string
+	}{
+		{name: "single volume minimum", throughput: 125},
+		{name: "single volume maximum", throughput: 1000},
+		{name: "below the minimum", throughput: 124, wantErr: "expected throughput to be in the range (125 - 1000), got 124"},
+		{name: "above one volume", throughput: 1001, wantErr: "expected throughput to be in the range (125 - 1000), got 1001"},
+		// A tier without the performance flag is refused elsewhere; it does not raise the bound.
+		{name: "tier without performance", throughput: 1001, tier: 4, wantErr: "expected throughput to be in the range (125 - 1000), got 1001"},
+		{name: "tier 4 maximum", throughput: 4000, performance: true, tier: 4},
+		{name: "above tier 4", throughput: 4001, performance: true, tier: 4, wantErr: "expected throughput to be in the range (125 - 4000), got 4001"},
+		{name: "tier 6 maximum", throughput: 6000, performance: true, tier: 6},
+		{name: "tier 8 maximum", throughput: 8000, performance: true, tier: 8},
+		{name: "above tier 8", throughput: 8001, performance: true, tier: 8, wantErr: "expected throughput to be in the range (125 - 8000), got 8001"},
+		{name: "array below the minimum", throughput: 124, performance: true, tier: 8, wantErr: "expected throughput to be in the range (125 - 8000), got 124"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateDatafyThroughput(tc.throughput, tc.performance, tc.tier)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %s", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("expected error %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
 // TestDatafyCustomizeDiffCreatePlan runs the two CustomizeDiffs in the order the resource does,
 // against a create plan. It exists because the Datafy rules and the upstream ones both constrain
 // `type`: Datafy requires gp3, and the upstream rules refuse the `iops` and `throughput` an array
@@ -262,6 +300,42 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 				datafy.AttrPerformanceTier: 4,
 			},
 			wantErr: "`type` must be set to \"gp3\" when `datafy_autoscaling` or `datafy_performance` is true",
+		},
+		{
+			name: "a tier 8 array states eight volumes' throughput",
+			config: map[string]any{
+				"availability_zone":        "us-east-1a",
+				"size":                     100,
+				"type":                     ec2.VolumeTypeGp3,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 8,
+				"iops":                     128000,
+				"throughput":               8000,
+			},
+			wantType: ec2.VolumeTypeGp3,
+		},
+		{
+			name: "a tier 4 array is capped at four volumes' throughput",
+			config: map[string]any{
+				"availability_zone":        "us-east-1a",
+				"size":                     100,
+				"type":                     ec2.VolumeTypeGp3,
+				datafy.AttrPerformance:     true,
+				datafy.AttrPerformanceTier: 4,
+				"iops":                     12000,
+				"throughput":               4001,
+			},
+			wantErr: "expected throughput to be in the range (125 - 4000), got 4001",
+		},
+		{
+			name: "a plain volume is capped at one volume's throughput",
+			config: map[string]any{
+				"availability_zone": "us-east-1a",
+				"size":              100,
+				"type":              ec2.VolumeTypeGp3,
+				"throughput":        1001,
+			},
+			wantErr: "expected throughput to be in the range (125 - 1000), got 1001",
 		},
 		{
 			// Without a datafy flag the upstream rules are untouched: a plain volume still

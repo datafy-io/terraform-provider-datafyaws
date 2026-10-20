@@ -183,10 +183,9 @@ func ResourceEBSVolume() *schema.Resource {
 			names.AttrTags:    tftags.TagsSchema(),
 			names.AttrTagsAll: tftags.TagsSchemaComputed(),
 			"throughput": {
-				Type:         schema.TypeInt,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: validation.IntBetween(125, 1000),
+				Type:     schema.TypeInt,
+				Optional: true,
+				Computed: true,
 			},
 			"type": {
 				Type:     schema.TypeString,
@@ -798,10 +797,20 @@ func resourceDatafyEBSVolumeCustomizeDiff(_ context.Context, diff *schema.Resour
 
 	// A value interpolated from elsewhere is unknown during plan and reads back as the zero,
 	// which is indistinguishable from unset; Create settles the pair once both are known.
-	if !datafyAttrsUnknown(diff.GetRawConfig()) {
+	if rawConfig := diff.GetRawConfig(); !datafyAttrsUnknown(rawConfig) {
 		tier := diff.Get(datafy.AttrPerformanceTier).(int)
 		if err := validateDatafyPerformance(performance, tier); err != nil {
 			return err
+		}
+
+		// Only a configured throughput is checked; a computed one is whatever AWS or Datafy reports.
+		if !rawConfig.IsNull() {
+			if v := rawConfig.GetAttr("throughput"); v.IsKnown() && !v.IsNull() {
+				throughput, _ := v.AsBigFloat().Int64()
+				if err := validateDatafyThroughput(int(throughput), performance, tier); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -840,6 +849,23 @@ func datafyAttrsUnknown(rawConfig cty.Value) bool {
 	}
 
 	return false
+}
+
+// validateDatafyThroughput checks a throughput, in MiB/s, against one gp3 volume's range of
+// 125-1000. With performance on, the throughput is the total across the tier's volumes, so the
+// maximum is tier times one volume's.
+func validateDatafyThroughput(throughput int, performance bool, tier int) error {
+	minThroughput, maxThroughput := 125, 1000
+	if performance && tier > 0 {
+		maxThroughput *= tier
+	}
+
+	if throughput < minThroughput || throughput > maxThroughput {
+		return fmt.Errorf("expected %s to be in the range (%d - %d), got %d", "throughput",
+			minThroughput, maxThroughput, throughput)
+	}
+
+	return nil
 }
 
 // datafyAttrIsSet reports whether a raw state value carries an active datafy setting. The
