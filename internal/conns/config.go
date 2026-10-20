@@ -251,7 +251,8 @@ func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWS
 	if c.DatafyToken == "" {
 		diags = append(diags, errs.NewWarningDiagnostic(
 			"Datafy Token was not found for provider",
-			"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications."))
+			"Without a Datafy token (datafy_token or DATAFY_TOKEN), updating or destroying aws_ebs_volume and aws_volume_attachment resources fails. "+
+				"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs#running-without-a-datafy-token for details."))
 	}
 	client.SetDatafyClient(datafy.NewDatafyClient(c.DatafyUrl, c.DatafyToken))
 

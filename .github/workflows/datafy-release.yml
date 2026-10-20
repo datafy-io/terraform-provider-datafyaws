@@ -78,11 +78,48 @@ jobs:
           gpg_private_key: ${{ secrets.TERRAFORM_PROVIDER_GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.TERRAFORM_PROVIDER_GPG_PASSPHRASE }}
 
+      # Rebasing onto a new hashicorp tag rewrites every Datafy commit, so the previous
+      # release of this line is usually not an ancestor and a commit-range changelog would
+      # list the whole Datafy history. Commits are matched by subject instead: ports and
+      # rebases keep subjects unchanged.
+      - name: Generate release notes
+        env:
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          AWS_VERSION=$(sed 's/^v//' .aws-version)
+          AWS_MAJOR=$(echo "$AWS_VERSION" | cut -d. -f1)
+          PREVIOUS=$(git tag --list | grep -E "^v${AWS_MAJOR}[0-9]{3}\.[0-9]+\.[0-9]+$" | grep -vxF "$VERSION" | sort -V | tail -1 || true)
+
+          git log --format='%H%x09%s' "$VERSION" | grep -P '\t(Datafy|datafy|DT-[0-9]+):' > "$RUNNER_TEMP/current.tsv" || true
+          if [ -n "$PREVIOUS" ]; then
+            git log --format='%s' "$PREVIOUS" | grep -E '^(Datafy|datafy|DT-[0-9]+):' > "$RUNNER_TEMP/previous.txt" || true
+          else
+            : > "$RUNNER_TEMP/previous.txt"
+          fi
+
+          {
+            echo "Built on [hashicorp/aws v${AWS_VERSION}](https://github.com/hashicorp/terraform-provider-aws/releases/tag/v${AWS_VERSION})."
+            echo
+            if [ -n "$PREVIOUS" ]; then
+              echo "## Changes since ${PREVIOUS}"
+            else
+              echo "## Changes"
+            fi
+            CHANGES=$(while IFS=$'\t' read -r sha subject; do
+              grep -qxF -- "$subject" "$RUNNER_TEMP/previous.txt" || echo "* ${sha} ${subject}"
+            done < "$RUNNER_TEMP/current.tsv")
+            echo "${CHANGES:-No Datafy changes.}"
+          } > "$RUNNER_TEMP/release-notes.md"
+
+          cat "$RUNNER_TEMP/release-notes.md"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'
-          args: release --clean --timeout 3h --parallelism 4 --config .datafy-goreleaser.yml
+          args: release --clean --timeout 3h --parallelism 4 --config .datafy-goreleaser.yml --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
