@@ -51,24 +51,24 @@ func (m *MockClient) SetRestoredVolume(dsnapId string, restoredVolume *RestoredV
 	m.restoredVolumes[dsnapId] = restoredVolume
 }
 
-func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
+func (m *MockClient) CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotRequest) (*RestoredVolume, error) {
 	m.mu.RLock()
-	restoredVolume, exists := m.restoredVolumes[datafySnapshotId]
+	restoredVolume, exists := m.restoredVolumes[req.DatafySnapshotId]
 	m.mu.RUnlock()
 	if !exists {
 		return nil, NotFoundError
 	}
 
 	var tags []types.Tag
-	for key, value := range tagz {
+	for key, value := range req.Tags {
 		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
 
 	volume := &types.Volume{
 		VolumeId:         aws.String(restoredVolume.VolumeId),
-		AvailabilityZone: aws.String(availabilityZone),
-		Iops:             aws.Int32(iops),
-		Throughput:       aws.Int32(throughput),
+		AvailabilityZone: aws.String(req.AvailabilityZone),
+		Iops:             aws.Int32(req.Iops),
+		Throughput:       aws.Int32(req.Throughput),
 		Size:             aws.Int32(restoredVolume.VolumeSizeGB),
 		Tags:             tags,
 	}
@@ -92,7 +92,7 @@ func (m *MockClient) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 						},
 						{
 							Key:   aws.String("datafy:restored-from-snapshot:id"),
-							Value: aws.String(datafySnapshotId),
+							Value: aws.String(req.DatafySnapshotId),
 						},
 					}, tags...),
 				},
@@ -180,9 +180,9 @@ func (m *MockClient) DetachVolume(instanceId string, volumeId string) error {
 	}, time.Minute)
 }
 
-func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, _ *bool, _ string, tagz map[string]string) (*Volume, error) {
+func (m *MockClient) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error) {
 	probe, err := m.ec2Client.CreateVolume(context.Background(), &ec2_sdkv2.CreateVolumeInput{
-		AvailabilityZone: aws.String(availabilityZone),
+		AvailabilityZone: aws.String(req.AvailabilityZone),
 		Size:             aws.Int32(1),
 		VolumeType:       types.VolumeTypeGp2,
 	})
@@ -199,17 +199,29 @@ func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int6
 		{Key: aws.String(sourceVolumeTagKey), Value: aws.String(sourceVolumeId)},
 		{Key: aws.String("datafy:volume-source"), Value: aws.String("native")},
 	}
-	for key, value := range tagz {
+	for key, value := range req.Tags {
 		tags = append(tags, types.Tag{Key: aws.String(key), Value: aws.String(value)})
 	}
 
-	for i := 0; i < 2; i++ {
+	// A performance array states its performance as an array total and the members split it,
+	// standing in for how the API provisions them. Without a tier every member carries the
+	// whole stated number, across the pair a volume has always been built from.
+	arraySize := req.PerformanceTier
+	memberIops, memberThroughput := req.Iops, req.Throughput
+	if arraySize > 0 {
+		memberIops = aws.Int32(aws.ToInt32(req.Iops) / arraySize)
+		memberThroughput = aws.Int32(aws.ToInt32(req.Throughput) / arraySize)
+	} else {
+		arraySize = 2
+	}
+
+	for i := int32(0); i < arraySize; i++ {
 		if _, err := m.ec2Client.CreateVolume(context.Background(), &ec2_sdkv2.CreateVolumeInput{
-			AvailabilityZone: aws.String(availabilityZone),
-			Size:             aws.Int32(int32(diskSize)),
+			AvailabilityZone: aws.String(req.AvailabilityZone),
+			Size:             aws.Int32(int32(req.DiskSize)),
 			VolumeType:       types.VolumeTypeGp3,
-			Iops:             iops,
-			Throughput:       throughput,
+			Iops:             memberIops,
+			Throughput:       memberThroughput,
 			TagSpecifications: []types.TagSpecification{
 				{ResourceType: types.ResourceTypeVolume, Tags: tags},
 			},
@@ -221,10 +233,10 @@ func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int6
 	source := &Volume{
 		Volume: &types.Volume{
 			VolumeId:         aws.String(sourceVolumeId),
-			AvailabilityZone: aws.String(availabilityZone),
-			Size:             aws.Int32(int32(diskSize)),
-			Iops:             iops,
-			Throughput:       throughput,
+			AvailabilityZone: aws.String(req.AvailabilityZone),
+			Size:             aws.Int32(int32(req.DiskSize)),
+			Iops:             req.Iops,
+			Throughput:       req.Throughput,
 		},
 		IsManaged: true, IsDatafied: true, HasSource: false,
 	}
@@ -232,19 +244,19 @@ func (m *MockClient) CreateDatafiedVolume(availabilityZone string, diskSize int6
 	return source, nil
 }
 
-func (m *MockClient) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+func (m *MockClient) ModifyVolume(volumeId string, req ModifyVolumeRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if vol, exists := m.volumes[volumeId]; exists {
-		if sizeGb != nil {
-			vol.Size = sizeGb
+		if req.SizeGb != nil {
+			vol.Size = req.SizeGb
 		}
-		if iops != nil {
-			vol.Iops = iops
+		if req.Iops != nil {
+			vol.Iops = req.Iops
 		}
-		if throughput != nil {
-			vol.Throughput = throughput
+		if req.Throughput != nil {
+			vol.Throughput = req.Throughput
 		}
 	}
 

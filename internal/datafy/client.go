@@ -14,16 +14,52 @@ const DefaultUrl = "https://iac.datafy.io"
 
 type Client interface {
 	GetVolume(volumeId string) (*Volume, error)
-	CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error)
-	CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*Volume, error)
+	CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotRequest) (*RestoredVolume, error)
+	CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error)
 	AttachVolume(instanceId string, volumeId string, deviceName string) error
 	DetachVolume(instanceId string, volumeId string) error
-	ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error
+	ModifyVolume(volumeId string, req ModifyVolumeRequest) error
+}
+
+type CreateVolumeRequest struct {
+	AvailabilityZone string
+	DiskSize         int64
+	Iops             *int32
+	Throughput       *int32
+	Encrypted        *bool
+	KmsKeyId         string
+	Autoscaling      bool
+	Performance      bool
+	PerformanceTier  int32
+	Tags             map[string]string
+}
+
+type CreateVolumeFromSnapshotRequest struct {
+	DatafySnapshotId string
+	AvailabilityZone string
+	Iops             int32
+	Throughput       int32
+	Tags             map[string]string
+}
+
+type ModifyVolumeRequest struct {
+	SizeGb     *int32
+	Iops       *int32
+	Throughput *int32
 }
 
 type tags struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+func tagsList(tagz map[string]string) []tags {
+	list := make([]tags, 0, len(tagz))
+	for k, v := range tagz {
+		list = append(list, tags{Key: k, Value: v})
+	}
+
+	return list
 }
 
 type createFromSnapshotsSource struct {
@@ -51,6 +87,9 @@ type createDatafiedVolumeProperties struct {
 	Encrypted        *bool  `json:"encrypted,omitempty"`
 	KmsKeyId         string `json:"kmsKeyId,omitempty"`
 	Tags             []tags `json:"tags,omitempty"`
+	Autoscaling      bool   `json:"autoscaling"`
+	Performance      bool   `json:"performance"`
+	PerformanceTier  int32  `json:"performanceTier"`
 }
 
 type createDatafiedVolumeRequest struct {
@@ -143,20 +182,16 @@ func (c *ClientImpl) GetVolume(volumeId string) (*Volume, error) {
 	return nil, fmt.Errorf(resp.Status)
 }
 
-func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabilityZone string, iops int32, throughput int32, tagz map[string]string) (*RestoredVolume, error) {
-	tagsList := make([]tags, 0, len(tagz))
-	for k, v := range tagz {
-		tagsList = append(tagsList, tags{Key: k, Value: v})
-	}
+func (c *ClientImpl) CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotRequest) (*RestoredVolume, error) {
 	request := createFromSnapshotsRequest{
 		Source: createFromSnapshotsSource{
-			DatafySnapshotId: datafySnapshotId,
+			DatafySnapshotId: req.DatafySnapshotId,
 		},
 		VolumeProperties: createFromSnapshotsVolumeProperties{
-			VolumeIops:       iops,
-			VolumeThroughput: throughput,
-			AvailabilityZone: availabilityZone,
-			Tags:             tagsList,
+			VolumeIops:       req.Iops,
+			VolumeThroughput: req.Throughput,
+			AvailabilityZone: req.AvailabilityZone,
+			Tags:             tagsList(req.Tags),
 		},
 	}
 
@@ -177,20 +212,19 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(datafySnapshotId string, availabil
 	return nil, toError(resp)
 }
 
-func (c *ClientImpl) CreateDatafiedVolume(availabilityZone string, diskSize int64, iops *int32, throughput *int32, encrypted *bool, kmsKeyId string, tagz map[string]string) (*Volume, error) {
-	tagsList := make([]tags, 0, len(tagz))
-	for k, v := range tagz {
-		tagsList = append(tagsList, tags{Key: k, Value: v})
-	}
+func (c *ClientImpl) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, error) {
 	request := createDatafiedVolumeRequest{
 		VolumeProperties: createDatafiedVolumeProperties{
-			AvailabilityZone: availabilityZone,
-			DiskSize:         diskSize,
-			VolumeIops:       iops,
-			VolumeThroughput: throughput,
-			Encrypted:        encrypted,
-			KmsKeyId:         kmsKeyId,
-			Tags:             tagsList,
+			AvailabilityZone: req.AvailabilityZone,
+			DiskSize:         req.DiskSize,
+			VolumeIops:       req.Iops,
+			VolumeThroughput: req.Throughput,
+			Encrypted:        req.Encrypted,
+			KmsKeyId:         req.KmsKeyId,
+			Tags:             tagsList(req.Tags),
+			Autoscaling:      req.Autoscaling,
+			Performance:      req.Performance,
+			PerformanceTier:  req.PerformanceTier,
 		},
 	}
 
@@ -248,11 +282,11 @@ func (c *ClientImpl) DetachVolume(instanceId string, volumeId string) error {
 	return fmt.Errorf(resp.Status)
 }
 
-func (c *ClientImpl) ModifyVolume(volumeId string, sizeGb *int32, iops *int32, throughput *int32) error {
+func (c *ClientImpl) ModifyVolume(volumeId string, req ModifyVolumeRequest) error {
 	request := modifyVolumeRequest{
-		VolumeSizeGb:     sizeGb,
-		VolumeIops:       iops,
-		VolumeThroughput: throughput,
+		VolumeSizeGb:     req.SizeGb,
+		VolumeIops:       req.Iops,
+		VolumeThroughput: req.Throughput,
 	}
 
 	resp, err := c.sendRequest(http.MethodPost, fmt.Sprintf("api/v1/aws/volumes/%s/modify", volumeId), request)
