@@ -30,7 +30,7 @@ The `provider "datafyaws"` block accepts every argument of the [`provider "aws"`
 - `datafy_token` (Optional, Sensitive) - Datafy API token. Can also be set with the `DATAFY_TOKEN` environment variable. Requests to the Datafy API without a token fail.
 - `datafy_url` (Optional) - Datafy API endpoint. Defaults to `https://iac.datafy.io`. Can also be set with the `DATAFY_URL` environment variable. Change it only when Datafy support asks you to.
 
-To migrate, copy your existing `provider "aws"` block (including any `alias`, `region`, `profile`, `assume_role`, `default_tags`, and `ignore_tags`) into a `provider "datafyaws"` block and add the token.
+Copy every argument of your `provider "aws"` block into the `provider "datafyaws"` block exactly as it is (`region`, `profile`, `assume_role`, `default_tags`, `ignore_tags`, `alias`, and any others), then add `datafy_token`. If you have several `provider "aws"` blocks (for example, one per region or account), create a matching `provider "datafyaws"` block for each one that manages EBS volumes.
 
 ## Resources with Datafy support
 
