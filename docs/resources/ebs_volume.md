@@ -62,19 +62,19 @@ resource "aws_ebs_volume" "restored" {
 
 ## Argument reference
 
-These arguments create the volume directly as a Datafy volume, instead of as a regular EBS volume that Datafy datafies later:
+The following are **creation parameters**. They take effect only when the volume is created, and create it directly as a Datafy volume instead of as a regular EBS volume that Datafy datafies later. They cannot be added to, changed on, or removed from an existing volume: any such change fails at plan time. To get a different optimization, create a new volume.
 
-- `datafy_autoscaling` (Optional, Boolean) - Optimize the volume for capacity: Datafy grows and shrinks the storage behind it.
-- `datafy_performance` (Optional, Boolean) - Optimize the volume for performance: Datafy backs it with an array of EBS volumes. Requires `datafy_performance_tier`.
-- `datafy_performance_tier` (Optional, Number) - Number of EBS volumes in the performance array: `4`, `6`, or `8`. Valid only with `datafy_performance = true`.
+- `datafy_autoscaling` (Optional, Boolean, creation only) - Create the volume optimized for capacity: Datafy grows and shrinks the storage behind it.
+- `datafy_performance` (Optional, Boolean, creation only) - Create the volume optimized for performance: Datafy backs it with an array of EBS volumes. Requires `datafy_performance_tier`.
+- `datafy_performance_tier` (Optional, Number, creation only) - Number of EBS volumes in the performance array: `4`, `6`, or `8`. Valid only with `datafy_performance = true`.
 
-`datafy_autoscaling` and `datafy_performance` can be combined. With neither set, the volume is a regular EBS volume.
+`datafy_autoscaling` and `datafy_performance` can be combined. With neither set, the volume is created as a regular EBS volume.
 
 - `type` must be `"gp3"`.
 - With `datafy_performance`, `iops` and `throughput` are what the whole array delivers, not per EBS volume. `throughput` can be up to 1000 MiB/s times `datafy_performance_tier`; without `datafy_performance` the gp3 range of 125-1000 MiB/s applies. The provider does not range-check `iops`; Datafy sizes the array to deliver it.
 - Datafy receives `availability_zone`, `size`, `iops`, `throughput`, `encrypted`, `kms_key_id`, `tags`, and the three `datafy_*` arguments. Do not combine them with `snapshot_id`, `multi_attach_enabled`, or `outpost_arn`; those are not applied to a Datafy volume.
 - The volume is Datafy-managed from creation.
-- The three arguments are immutable. They cannot be added to an existing volume or changed in any way. The only allowed change is removing them from the configuration, and only after the volume is no longer datafied.
+- The one exception to "cannot be removed": once the volume is no longer datafied, you can delete these arguments from the configuration. This only updates state; the volume itself is not changed.
 
 ### Upgrading from `autoscaling_native`
 
