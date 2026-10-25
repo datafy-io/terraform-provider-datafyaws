@@ -35,6 +35,6 @@ datafy-rebase:
 	PATTERN=$$(printf "! -name %s " "$${EXCLUDE[@]}") ; \
 	find ./.github/workflows $$PATTERN -mindepth 1 -maxdepth 1 -exec rm -rf {} + > /dev/null 2>&1;
 
-	@EXCLUDE=("index.md") ; \
+	@EXCLUDE=("index.md" "resources") ; \
 	PATTERN=$$(printf "! -name %s " "$${EXCLUDE[@]}") ; \
 	find ./docs $$PATTERN -mindepth 1 -maxdepth 1 -exec rm -rf {} + > /dev/null 2>&1;
