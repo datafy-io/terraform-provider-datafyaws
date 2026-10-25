@@ -464,8 +464,8 @@ func testEndpointCase(ctx context.Context, t *testing.T, region string, testcase
 		expectedDiags,
 		errs.NewWarningDiagnostic(
 			"Datafy Token was not found for provider",
-			"Without a Datafy token (datafy_token or DATAFY_TOKEN), updating or destroying aws_ebs_volume and aws_volume_attachment resources fails. "+
-				"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs#running-without-a-datafy-token for details.",
+			"Requests to the Datafy API without a token (datafy_token or DATAFY_TOKEN) fail. "+
+				"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs#configuration for details.",
 		),
 	)
 	diags := p.Configure(ctx, terraformsdk.NewResourceConfigRaw(config))
