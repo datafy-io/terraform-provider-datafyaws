@@ -36,6 +36,7 @@ When conflicts occur, apply the following rules (these mirror what `make datafy-
 
 **`docs/`** — delete everything except:
 - `index.md`
+- `resources/` (Datafy's per-resource pages)
 
 **`CODEOWNERS`** — always overwrite with:
 ```
@@ -88,4 +89,4 @@ Do NOT create a new commit. Instead, fold every changed/deleted file back into t
 - Confirm all `datafy:` commits are present above the new base
 - Confirm `CODEOWNERS` contains `* @datafy-io/saas`
 - Confirm only `datafy-pull-request.yml` and `datafy-release.yml` remain in `.github/workflows/`
-- Confirm only `index.md` remains in `docs/`
+- Confirm only `index.md` and `resources/` remain in `docs/`
