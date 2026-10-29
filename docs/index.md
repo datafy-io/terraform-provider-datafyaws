@@ -1,56 +1,94 @@
 <!-- Copyright IBM Corp. 2014, 2026 -->
 <!-- SPDX-License-Identifier: MPL-2.0 -->
 
-# Welcome
+# DatafyAWS Provider
 
-The **Terraform DatafyAWS Provider** is a fork of the official [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws) maintained by [Datafy](https://datafy.io). It includes all the functionality of the standard AWS provider with added support for using [Datafy](https://datafy.io) when managing AWS resources with Terraform.
+The **DatafyAWS provider** is a build of the official [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws) maintained by [Datafy](https://datafy.io). It contains every resource and data source of `hashicorp/aws` unchanged, plus Datafy-aware behavior for `aws_ebs_volume` and `aws_volume_attachment`.
 
-Because this provider is fully compatible with the upstream AWS provider, the [official Terraform AWS Provider documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) applies here as well — refer to it for resource and data source reference material.
+Use it side by side with `hashicorp/aws`: keep `hashicorp/aws` as your default provider, and set `provider = datafyaws` only on the EBS volume and volume attachment resources that Datafy may manage. For any argument or attribute not described in these pages, the [hashicorp/aws documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) applies.
+
+## Why a separate provider
+
+When Datafy optimizes ("datafies") an EBS volume, it replaces the original volume with Datafy-managed volumes and deletes the original. Terraform state still holds the original volume ID. With `hashicorp/aws`, the next plan sees the volume as gone and tries to create it again. The DatafyAWS provider asks the Datafy API about each volume and, when Datafy manages it, keeps the state stable and routes supported changes through Datafy.
+
+## Versions
+
+This version of DatafyAWS is built on `hashicorp/aws` 6.42, for use alongside `hashicorp/aws` 6.x. A version number has the form `<MAJOR>.<MINOR>.<PATCH>`:
+
+- `MAJOR` is the `hashicorp/aws` release the build is based on: major × 1000 + minor. `6042` is built on `hashicorp/aws` 6.42.
+- `MINOR` is the minor version of the Datafy release. `6042.4.0` contains Datafy release 1.4.
+- `PATCH` increases by one with every patch release, whether it carries a Datafy fix or a `hashicorp/aws` patch release.
+
+Use the version constraint `"~> 6042.0"`. It picks up every new Datafy release on `hashicorp/aws` 6.42. Constraints such as `~> 6.0` do **not** match any DatafyAWS release.
+
+The resources and provider-block arguments available through `provider "datafyaws"` are those of `hashicorp/aws` 6.42, even if your `hashicorp/aws` provider is newer. An argument that `hashicorp/aws` added later is rejected in a `provider "datafyaws"` block.
 
 ## Configuration
 
-The `provider "datafyaws"` block requires **all the same configuration** as the [`provider "aws"` block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#provider-configuration). The only addition is `datafy_token`, which can also be set via the `DATAFY_TOKEN` environment variable.
+The `provider "datafyaws"` block accepts every argument of the [`provider "aws"` block](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#provider-configuration), plus:
 
-_To migrate, duplicate your existing `provider "aws"` block as `provider "datafyaws"` and add `datafy_token`._
+- `datafy_token` (Optional, Sensitive) - Datafy API token. Can also be set with the `DATAFY_TOKEN` environment variable. Requests to the Datafy API without a token fail.
+- `datafy_url` (Optional) - Datafy API endpoint. Defaults to `https://iac.datafy.io`. Can also be set with the `DATAFY_URL` environment variable. Change it only when Datafy support asks you to.
 
-## Resources Supported by Datafy
+Copy every argument of your `provider "aws"` block into the `provider "datafyaws"` block exactly as it is (`region`, `profile`, `assume_role`, `default_tags`, `ignore_tags`, `alias`, and any others), then add `datafy_token`. If you have several `provider "aws"` blocks (for example, one per region or account), create a matching `provider "datafyaws"` block for each one that manages EBS volumes.
 
-Add `provider = datafyaws` to resources of the following types to enable Datafy support:
+## Resources with Datafy support
 
-- `aws_ebs_volume`
-- `aws_volume_attachment`
+Set `provider = datafyaws` on:
 
-## Example Usage
+- [`aws_ebs_volume`](https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs/resources/ebs_volume)
+- [`aws_volume_attachment`](https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs/resources/volume_attachment)
+
+Every other resource and data source in DatafyAWS behaves exactly like the same one in `hashicorp/aws`. Use `hashicorp/aws` for them.
+
+### Datafy-managed volumes
+
+A volume is **Datafy-managed** while Datafy has datafied it: the volume ID in your state is kept as a logical ID, and its data lives on Datafy-managed EBS volumes in your account. For such a volume:
+
+- Refresh does not report drift. `size`, `iops`, `throughput`, and `tags` are read from Datafy and the Datafy-managed volumes; every other attribute stays as it is in state.
+- When Datafy hands the volume back (un-datafy), it creates a new, regular EBS volume. On the next refresh the provider moves the resource to the new volume ID with a warning, and from then on manages it like any EBS volume.
+- Only `size`, `iops`, `throughput`, and `tags` can change. Datafy applies size, IOPS, and throughput changes, and Terraform waits until Datafy reports the new value. Tag changes are applied to the Datafy-managed volumes.
+- Any other change, including changes that would replace the volume, fails at plan time with `can't modify datafied EBS Volume`.
+- Any change to an `aws_volume_attachment` of a managed volume fails at plan time.
+
+## Example usage
 
 ```hcl
 terraform {
   required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
     datafyaws = {
       source  = "datafy-io/datafyaws"
-      version = "~> 6.0"
+      version = "~> 6042.0"
     }
   }
 }
 
 provider "aws" {
-  region     = "us-east-1"
-  access_key = "YOUR_ACCESS_KEY"
-  secret_key = "YOUR_SECRET_KEY"
+  region  = "us-east-1"
+  profile = "my-profile"
 }
 
-# All the same configuration as provider "aws", plus datafy_token
+# Same configuration as provider "aws". The Datafy token is read from the
+# DATAFY_TOKEN environment variable.
 provider "datafyaws" {
-  region     = "us-east-1"
-  access_key = "YOUR_ACCESS_KEY"
-  secret_key = "YOUR_SECRET_KEY"
+  region  = "us-east-1"
+  profile = "my-profile"
+}
 
-  datafy_token = "YOUR_DATAFY_TOKEN" # or set DATAFY_TOKEN env var
+resource "aws_instance" "example" {
+  ami           = "ami-0123456789abcdef0"
+  instance_type = "m7i.large"
 }
 
 resource "aws_ebs_volume" "example" {
   provider = datafyaws
 
-  availability_zone = "us-east-1a"
+  availability_zone = aws_instance.example.availability_zone
+  type              = "gp3"
   size              = 40
 
   tags = {
@@ -63,6 +101,6 @@ resource "aws_volume_attachment" "example" {
 
   device_name = "/dev/sdh"
   volume_id   = aws_ebs_volume.example.id
-  instance_id = "i-1234567890abcdef0"
+  instance_id = aws_instance.example.id
 }
 ```
