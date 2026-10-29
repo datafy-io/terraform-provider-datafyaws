@@ -464,7 +464,8 @@ func testEndpointCase(ctx context.Context, t *testing.T, region string, testcase
 		expectedDiags,
 		errs.NewWarningDiagnostic(
 			"Datafy Token was not found for provider",
-			"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs for implications.",
+			"Requests to the Datafy API without a token (datafy_token or DATAFY_TOKEN) fail. "+
+				"See https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs#configuration for details.",
 		),
 	)
 	diags := p.Configure(ctx, terraformsdk.NewResourceConfigRaw(config))
