@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       datafy_version:
-        description: 'Next Datafy version (MINOR.PATCH, e.g. 3.0)'
+        description: 'Datafy version without the major (MINOR.PATCH, each 0-99, e.g. 4.0 for Datafy 1.4.0)'
         required: true
         type: string
 
@@ -19,15 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.tag.outputs.version }}
+      aws_version: ${{ steps.tag.outputs.aws_version }}
+      datafy_version: ${{ steps.tag.outputs.datafy_version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Version format: <AWS_MAJOR>.<AWS_MINOR*100 + DATAFY_MINOR>.<AWS_PATCH*100 + DATAFY_PATCH>
+      # e.g. AWS 5.100.1 + Datafy 1.5.1 -> v5.10005.101. The Datafy major (always 1) is not encoded.
       - name: Create tag
         id: tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATAFY_INPUT: ${{ inputs.datafy_version }}
         run: |
           set -euo pipefail
 
@@ -36,26 +41,48 @@ jobs:
             exit 1
           fi
 
-          AWS_VERSION=$(cat .aws-version | sed 's/^v//')
-          AWS_MAJOR=$(echo "$AWS_VERSION" | cut -d. -f1)
-          AWS_MINOR=$(echo "$AWS_VERSION" | cut -d. -f2)
-          NEW_MAJOR=$(printf "%d%03d" "$AWS_MAJOR" "$AWS_MINOR")
-
-          VERSION="v${NEW_MAJOR}.${{ inputs.datafy_version }}"
-
-          if ! echo "$VERSION" | grep -qE '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
-            echo "ERROR: '$VERSION' is not valid SemVer (no leading zeros allowed)"
+          AWS_VERSION=$(sed 's/^v//' .aws-version | tr -d '[:space:]')
+          if ! echo "$AWS_VERSION" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "ERROR: .aws-version '$AWS_VERSION' is not MAJOR.MINOR.PATCH"
             exit 1
           fi
+          IFS=. read -r AWS_MAJOR AWS_MINOR AWS_PATCH <<< "$AWS_VERSION"
+
+          if ! echo "$DATAFY_INPUT" | grep -qE '^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$'; then
+            echo "ERROR: datafy_version '$DATAFY_INPUT' must be MINOR.PATCH with each part 0-99 and no leading zeros"
+            exit 1
+          fi
+          IFS=. read -r DATAFY_MINOR DATAFY_PATCH <<< "$DATAFY_INPUT"
+          DATAFY_VERSION="1.${DATAFY_MINOR}.${DATAFY_PATCH}"
+
+          VERSION="v${AWS_MAJOR}.$((AWS_MINOR * 100 + DATAFY_MINOR)).$((AWS_PATCH * 100 + DATAFY_PATCH))"
 
           if git tag --list | grep -qxF "$VERSION"; then
             echo "ERROR: tag $VERSION already exists"
             exit 1
           fi
-     
+
+          # Versions on a release line must strictly increase and the Datafy minor must never decrease.
+          LATEST=$(git tag --list "v${AWS_MAJOR}.*" | grep -E "^v${AWS_MAJOR}\.[0-9]+\.[0-9]+$" | sort -V | tail -n1 || true)
+          if [ -n "$LATEST" ]; then
+            if [ "$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -n1)" != "$VERSION" ]; then
+              echo "ERROR: $VERSION is not greater than the latest release $LATEST on the ${AWS_MAJOR}.x line"
+              exit 1
+            fi
+            LATEST_DATAFY_MINOR=$(( $(echo "$LATEST" | cut -d. -f2) % 100 ))
+            if [ "$DATAFY_MINOR" -lt "$LATEST_DATAFY_MINOR" ]; then
+              echo "ERROR: Datafy minor $DATAFY_MINOR is lower than $LATEST_DATAFY_MINOR used by $LATEST"
+              exit 1
+            fi
+          fi
+
           gh api repos/${{ github.repository }}/git/refs --method POST -f ref="refs/tags/${VERSION}" -f sha="${{ github.sha }}"
-          echo "Created tag: $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Created tag: $VERSION (AWS ${AWS_VERSION} / Datafy ${DATAFY_VERSION})"
+          {
+            echo "version=$VERSION"
+            echo "aws_version=$AWS_VERSION"
+            echo "datafy_version=$DATAFY_VERSION"
+          } >> "$GITHUB_OUTPUT"
 
   goreleaser:
     needs: tag
@@ -86,3 +113,5 @@ jobs:
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_VERSION: ${{ needs.tag.outputs.aws_version }}
+          DATAFY_VERSION: ${{ needs.tag.outputs.datafy_version }}
