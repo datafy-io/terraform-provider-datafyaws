@@ -2,6 +2,9 @@ package datafy
 
 import (
 	"testing"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
 func TestValidateNoDatafyTags(t *testing.T) {
@@ -41,6 +44,79 @@ func TestValidateNoDatafyTags(t *testing.T) {
 			err := ValidateNoDatafyTags(tt.tags)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateNoDatafyTags() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGetSourceVolumeId(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []*ec2.Tag
+		want string
+	}{
+		{
+			name: "no tags",
+			tags: nil,
+			want: "",
+		},
+		{
+			name: "not a datafy volume",
+			tags: []*ec2.Tag{{Key: aws.String("Name"), Value: aws.String("my-volume")}},
+			want: "",
+		},
+		{
+			name: "datafy volume",
+			tags: []*ec2.Tag{
+				{Key: aws.String("Managed-By"), Value: aws.String("Datafy.io")},
+				{Key: aws.String("datafy:source-volume:id"), Value: aws.String("vol-123")},
+			},
+			want: "vol-123",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetSourceVolumeId(tt.tags); got != tt.want {
+				t.Errorf("GetSourceVolumeId() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsManagedByDatafy(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []*ec2.Tag
+		want bool
+	}{
+		{
+			name: "no tags",
+			tags: nil,
+			want: false,
+		},
+		{
+			name: "not a datafy volume",
+			tags: []*ec2.Tag{{Key: aws.String("Name"), Value: aws.String("my-volume")}},
+			want: false,
+		},
+		{
+			name: "other manager",
+			tags: []*ec2.Tag{{Key: aws.String("Managed-By"), Value: aws.String("someone-else")}},
+			want: false,
+		},
+		{
+			name: "datafy volume",
+			tags: []*ec2.Tag{
+				{Key: aws.String("Managed-By"), Value: aws.String("Datafy.io")},
+				{Key: aws.String("datafy:source-volume:id"), Value: aws.String("vol-123")},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsManagedByDatafy(tt.tags); got != tt.want {
+				t.Errorf("IsManagedByDatafy() = %v, want %v", got, tt.want)
 			}
 		})
 	}

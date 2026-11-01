@@ -239,6 +239,7 @@ func (m *MockClient) CreateDatafiedVolume(req CreateVolumeRequest) (*Volume, err
 			Throughput:       req.Throughput,
 		},
 		IsManaged: true, IsDatafied: true, HasSource: false,
+		Mode: &Mode{Autoscaler: req.Autoscaling, Performance: req.Performance, ArraySize: arraySize},
 	}
 	m.SetVolume(sourceVolumeId, source)
 	return source, nil
