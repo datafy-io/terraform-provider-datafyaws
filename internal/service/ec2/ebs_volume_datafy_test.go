@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 	"github.com/hashicorp/terraform-provider-aws/internal/acctest"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
@@ -86,7 +87,258 @@ func TestAccDatafyEC2EBSVolume_replacedBy(t *testing.T) {
 				),
 			},
 			{
-				RefreshState: true,
+				RefreshState: true},
+		},
+	})
+}
+
+// A volume datafied from the UI no longer exists in AWS; importing it by its own ID reads it
+// from its datafy volumes, and Datafy reports it as an autoscaling pair, which the configuration
+// must state.
+func TestAccDatafyEC2EBSVolume_importManaged(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+
+	var v awstypes.Volume
+	var dv datafyVolume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_7_0),
+		},
+		Steps: slices.Concat([]resource.TestStep{
+			{
+				Config: testAccDatafyEBSVolumeConfig(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolume(ctx, &v),
+				Config:    testAccDatafyEBSVolumeConfig(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+				),
+			},
+		},
+			// The volume was datafied outside Terraform, so the state before the import does
+			// not carry its shape.
+			testAccDatafyImportSteps(&dv, testAccDatafyEBSVolumeConfig(rName), datafy.AttrAutoscaling, datafy.AttrPerformance),
+			[]resource.TestStep{
+				{
+					Config:      testAccDatafyEBSVolumeConfig(rName),
+					ExpectError: regexache.MustCompile("removing `datafy_autoscaling` from EBS Volume .* is not allowed while the volume is datafied"),
+				},
+				{
+					Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+					ExpectError: regexache.MustCompile("changing `datafy_performance` of an existing EBS Volume"),
+				},
+				testAccDatafyImportedStep(testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+					resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, acctest.CtTrue),
+					resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformance, acctest.CtFalse),
+				),
+			}),
+	})
+}
+
+// An imported performance array without autoscaling carries its shape, and its iops and
+// throughput as array totals; the configuration that created it plans no change. The totals are
+// above the four volumes' gp3 baseline of 12000 iops and 500 MiB/s.
+func TestAccDatafyEC2EBSVolume_importPerformance(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(false), withPerformance(true), withPerformanceTier(4, 20000, 1000))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 4,
+		testAccDatafyImportedStep(config,
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, acctest.CtFalse),
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformance, acctest.CtTrue),
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformanceTier, "4"),
+			resource.TestCheckResourceAttr(resourceName, names.AttrIOPS, "20000"),
+			resource.TestCheckResourceAttr(resourceName, names.AttrThroughput, "1000"),
+		),
+	))
+}
+
+// An imported autoscaling pair carries its shape; the configuration that created it plans no
+// change.
+func TestAccDatafyEC2EBSVolume_importAutoscaling(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(false))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 2,
+		testAccDatafyImportedStep(config,
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, acctest.CtTrue),
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformance, acctest.CtFalse),
+		),
+	))
+}
+
+// An imported autoscaling performance array carries its shape; the configuration that created
+// it plans no change.
+func TestAccDatafyEC2EBSVolume_importAutoscalingPerformance(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(6, 18000, 750))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 6,
+		testAccDatafyImportedStep(config,
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, acctest.CtTrue),
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformance, acctest.CtTrue),
+			resource.TestCheckResourceAttr(resourceName, datafy.AttrPerformanceTier, "6"),
+		),
+	))
+}
+
+// An imported performance array without autoscaling must be configured as one: omitting it,
+// another tier, or adding autoscaling are rejected.
+func TestAccDatafyEC2EBSVolume_importPerformanceRejectOtherMode(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(false), withPerformance(true), withPerformanceTier(4, 12000, 500))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 4,
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3")),
+			ExpectError: regexache.MustCompile("removing `datafy_performance` from EBS Volume .* is not allowed while the volume is datafied"),
+		},
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(false), withPerformance(true), withPerformanceTier(6, 12000, 500)),
+			ExpectError: regexache.MustCompile("changing `datafy_performance_tier` of an existing EBS Volume"),
+		},
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+			ExpectError: regexache.MustCompile("changing `datafy_autoscaling` of an existing EBS Volume"),
+		},
+	))
+}
+
+// An imported autoscaling pair must be configured as one: omitting it, or configuring a
+// performance array, are rejected.
+func TestAccDatafyEC2EBSVolume_importAutoscalingRejectOtherMode(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(false))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 2,
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3")),
+			ExpectError: regexache.MustCompile("removing `datafy_autoscaling` from EBS Volume .* is not allowed while the volume is datafied"),
+		},
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+			ExpectError: regexache.MustCompile("changing `datafy_performance` of an existing EBS Volume"),
+		},
+	))
+}
+
+// An imported autoscaling performance array must be configured as one: omitting autoscaling or
+// the tier, or another tier, are rejected.
+func TestAccDatafyEC2EBSVolume_importAutoscalingPerformanceRejectOtherMode(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(6, 18000, 750))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 6,
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withPerformance(true), withPerformanceTier(6, 18000, 750)),
+			ExpectError: regexache.MustCompile("removing `datafy_autoscaling` from EBS Volume .* is not allowed while the volume is datafied"),
+		},
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true)),
+			ExpectError: regexache.MustCompile("removing `datafy_performance_tier` from EBS Volume .* is not allowed while the volume is datafied"),
+		},
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 18000, 750)),
+			ExpectError: regexache.MustCompile("changing `datafy_performance_tier` of an existing EBS Volume"),
+		},
+	))
+}
+
+// An imported autoscaling pair keeps its configuration while datafied; once it is undatafied
+// from the UI, removing the attribute is offboarding and applies in-place.
+func TestAccDatafyEC2EBSVolume_importAutoscalingOffboard(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_ebs_volume.test"
+	config := testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3"), withAutoscaling(true), withPerformance(false))
+
+	var dv datafyVolume
+	resource.ParallelTest(t, testAccDatafyImportTestCase(ctx, t, config, &dv, 2,
+		resource.TestStep{
+			Config:      testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3")),
+			ExpectError: regexache.MustCompile("removing `datafy_autoscaling` from EBS Volume .* is not allowed while the volume is datafied"),
+		},
+		resource.TestStep{
+			PreConfig: undatafyNativeVolume(ctx, &dv, rName),
+			Config:    testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3")),
+			ConfigPlanChecks: resource.ConfigPlanChecks{
+				PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionUpdate),
+				},
+			},
+			Check: resource.ComposeTestCheckFunc(
+				resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, acctest.CtFalse),
+			),
+		},
+		resource.TestStep{
+			Config: testAccDatafyEBSVolumeConfig(rName, withVolumeType("gp3")),
+			ConfigPlanChecks: resource.ConfigPlanChecks{
+				PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectEmptyPlan(),
+				},
+			},
+		},
+	))
+}
+
+// Importing one of the datafy volumes that replace a datafied volume is rejected.
+func TestAccDatafyEC2EBSVolume_rejectImportDatafyVolume(t *testing.T) {
+	ctx := acctest.Context(t)
+	resourceName := "aws_ebs_volume.test"
+
+	var v awstypes.Volume
+	var dv datafyVolume
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeConfig_basic,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeExists(ctx, resourceName, &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolume(ctx, &v),
+				Config:    testAccEBSVolumeConfig_basic,
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, &dv),
+				),
+			},
+			{
+				ResourceName: resourceName,
+				ImportState:  true,
+				ImportStateIdFunc: func(*terraform.State) (string, error) {
+					return aws.ToString(dv.volumes[0].VolumeId), nil
+				},
+				ExpectError: regexache.MustCompile(`can't import EBS Volume .*: it is a datafy volume, import the EBS Volume it replaces \(vol-.*\) instead`),
 			},
 		},
 	})
@@ -972,6 +1224,93 @@ func testAccDatafyCheckArraySize(dv *datafyVolume, want int) resource.TestCheckF
 			return fmt.Errorf("expected %d datafy volumes for source volume %s, got %d", want, dv.volumeId, len(dv.volumes))
 		}
 		return nil
+	}
+}
+
+// testAccDatafyImportTestCase creates the volume config states as a Datafy volume of arraySize
+// datafy volumes into dv, imports it in place of the state the create wrote, and continues with
+// steps.
+func testAccDatafyImportTestCase(ctx context.Context, t *testing.T, config string, dv *datafyVolume, arraySize int, steps ...resource.TestStep) resource.TestCase {
+	resourceName := "aws_ebs_volume.test"
+
+	return resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.EC2ServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
+		TerraformVersionChecks: []tfversion.TerraformVersionCheck{
+			tfversion.SkipBelow(tfversion.Version1_7_0),
+		},
+		Steps: slices.Concat([]resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeExists(ctx, resourceName, dv),
+					testAccDatafyCheckArraySize(dv, arraySize),
+				),
+			},
+		},
+			// Created as a Datafy volume, state holds the ARN of one of its datafy volumes.
+			testAccDatafyImportSteps(dv, config, names.AttrARN),
+			steps,
+		),
+	}
+}
+
+// testAccDatafyImportSteps imports aws_ebs_volume.test, the volume dv names, with config twice. The
+// first import runs in a separate working directory and verifies the imported state against the
+// state Terraform wrote, ignoring verifyIgnore. Terraform then forgets the volume without
+// destroying it, and the second import writes the imported state in its place, so later steps
+// plan against it. Removed blocks need Terraform 1.7.
+func testAccDatafyImportSteps(dv *datafyVolume, config string, verifyIgnore ...string) []resource.TestStep {
+	resourceName := "aws_ebs_volume.test"
+
+	return []resource.TestStep{
+		{
+			ResourceName:            resourceName,
+			ImportState:             true,
+			ImportStateVerify:       true,
+			ImportStateVerifyIgnore: append([]string{names.AttrCreateTime}, verifyIgnore...),
+		},
+		{
+			Config: testAccDatafyEBSVolumeConfig_removed(),
+		},
+		// With the volume gone from state, its ID can't be read from it.
+		{
+			Config:       config,
+			ResourceName: resourceName,
+			ImportState:  true,
+			ImportStateIdFunc: func(*terraform.State) (string, error) {
+				return dv.volumeId, nil
+			},
+			ImportStatePersist: true,
+		},
+	}
+}
+
+func testAccDatafyEBSVolumeConfig_removed() string {
+	return `
+removed {
+  from = aws_ebs_volume.test
+
+  lifecycle {
+    destroy = false
+  }
+}
+`
+}
+
+// testAccDatafyImportedStep plans config against the imported state, expects no change, and
+// runs checks on that state.
+func testAccDatafyImportedStep(config string, checks ...resource.TestCheckFunc) resource.TestStep {
+	return resource.TestStep{
+		Config: config,
+		ConfigPlanChecks: resource.ConfigPlanChecks{
+			PreApply: []plancheck.PlanCheck{
+				plancheck.ExpectEmptyPlan(),
+			},
+		},
+		Check: resource.ComposeTestCheckFunc(checks...),
 	}
 }
 
