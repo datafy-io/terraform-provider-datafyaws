@@ -75,6 +75,7 @@ The following are **creation parameters**. They take effect only when the volume
 - Datafy receives `availability_zone`, `size`, `iops`, `throughput`, `encrypted`, `kms_key_id`, `tags`, and the three `datafy_*` arguments. Do not combine them with `snapshot_id`, `multi_attach_enabled`, or `outpost_arn`; those are not applied to a Datafy volume.
 - The volume is Datafy-managed from creation.
 - The one exception to "cannot be removed": once the volume is no longer datafied, you can delete these arguments from the configuration. This only updates state; the volume itself is not changed.
+- The one exception to "cannot be added": when state does not hold an argument (a volume datafied outside Terraform, or one from a provider release that predates it), you can add it with the value the volume has, as Datafy reports it. This only updates state; the volume itself is not changed.
 
 ### Upgrading from `autoscaling_native`
 
@@ -100,3 +101,11 @@ To create a volume from a Datafy snapshot, set `snapshot_id` to the Datafy snaps
 ## Destroy
 
 Destroying a Datafy-managed volume deletes the Datafy-managed volumes (and the original volume, if it still exists).
+
+## Import
+
+Import a Datafy-managed volume by its original volume ID, the one Datafy reports for it, even though that volume no longer exists in AWS:
+
+```shell
+terraform import aws_ebs_volume.example vol-0123456789abcdef0
+```
