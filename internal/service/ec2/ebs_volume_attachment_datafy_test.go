@@ -6,6 +6,7 @@ package ec2_test
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"testing"
 	"time"
 
@@ -147,6 +148,132 @@ func TestAccDatafyEC2EBSVolumeAttachment_attach(t *testing.T) {
 			{
 				PreConfig: createDatafyVolume(ctx, &v),
 				Config:    testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeAttachmentExists(ctx, resourceName),
+				),
+			},
+		},
+	})
+}
+
+// An attachment of a datafied volume imports by its source volume ID while the datafy volumes
+// are attached to the instance.
+func TestAccDatafyEC2EBSVolumeAttachment_importManaged(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v ec2.Volume
+	resourceName := "aws_volume_attachment.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeAttachmentDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeAttachmentExists(ctx, resourceName),
+					testAccCheckVolumeExists(ctx, "aws_ebs_volume.test", &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolumeAttachment(ctx, &v, 10),
+				Config:    testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeAttachmentExists(ctx, resourceName),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateIdFunc: testAccVolumeAttachmentImportStateIDFunc(resourceName),
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+// Importing an attachment of a datafied volume to an instance its datafy volumes are not
+// attached to finds no attachment.
+func TestAccDatafyEC2EBSVolumeAttachment_importManagedOtherInstance(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v ec2.Volume
+	resourceName := "aws_volume_attachment.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeAttachmentDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeAttachmentExists(ctx, resourceName),
+					testAccCheckVolumeExists(ctx, "aws_ebs_volume.test", &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolumeAttachment(ctx, &v, 10),
+				Config:    testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeAttachmentExists(ctx, resourceName),
+				),
+			},
+			{
+				ResourceName: resourceName,
+				ImportState:  true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					rs, ok := s.RootModule().Resources[resourceName]
+					if !ok {
+						return "", fmt.Errorf("Not found: %s", resourceName)
+					}
+					return fmt.Sprintf("%s:%s:%s", rs.Primary.Attributes["device_name"], rs.Primary.Attributes["volume_id"], "i-0123456789abcdef0"), nil
+				},
+				ExpectError: regexp.MustCompile(`Cannot import non-existent remote object`),
+			},
+		},
+	})
+}
+
+// An attachment of a datafied volume whose datafy volumes were all detached outside Terraform
+// no longer exists; the next apply attaches the volume again through Datafy.
+func TestAccDatafyEC2EBSVolumeAttachment_detachedOutside(t *testing.T) {
+	ctx := acctest.Context(t)
+	var v ec2.Volume
+	resourceName := "aws_volume_attachment.test"
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccDatafyCheckVolumeAttachmentDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckVolumeAttachmentExists(ctx, resourceName),
+					testAccCheckVolumeExists(ctx, "aws_ebs_volume.test", &v),
+				),
+			},
+			{
+				PreConfig: createDatafyVolumeAttachment(ctx, &v, 10),
+				Config:    testAccEBSVolumeAttachmentConfig_basic(rName),
+				Check: resource.ComposeTestCheckFunc(
+					testAccDatafyCheckVolumeAttachmentExists(ctx, resourceName),
+				),
+			},
+			{
+				PreConfig:          detachDatafyVolumes(ctx, &v),
+				Config:             testAccEBSVolumeAttachmentConfig_basic(rName),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: testAccEBSVolumeAttachmentConfig_basic(rName),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDatafyCheckVolumeAttachmentExists(ctx, resourceName),
 				),
@@ -373,6 +500,44 @@ func createDatafyVolumeAttachment(ctx context.Context, v *ec2.Volume, size int) 
 				ReplacedBy: "",
 			})
 			return nil
+		}()
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+// detachDatafyVolumes detaches every datafy volume of v outside Terraform and Datafy.
+func detachDatafyVolumes(ctx context.Context, v *ec2.Volume) func() {
+	return func() {
+		err := func() error {
+			conn := acctest.Provider.Meta().(*conns.AWSClient).EC2Conn()
+
+			dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(aws.StringValue(v.VolumeId)))
+			if err != nil {
+				return err
+			}
+
+			var ids []string
+			for _, volume := range dvo.Volumes {
+				if len(volume.Attachments) == 0 {
+					continue
+				}
+				if _, err := conn.DetachVolume(&ec2.DetachVolumeInput{
+					VolumeId: volume.VolumeId,
+					Force:    aws.Bool(true),
+				}); err != nil {
+					return err
+				}
+				ids = append(ids, aws.StringValue(volume.VolumeId))
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+
+			return awsec2.NewVolumeAvailableWaiter(acctest.Provider.Meta().(*conns.AWSClient).EC2Client()).Wait(ctx, &awsec2.DescribeVolumesInput{
+				VolumeIds: ids,
+			}, time.Minute)
 		}()
 		if err != nil {
 			panic(err)
