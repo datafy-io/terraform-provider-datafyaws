@@ -32,6 +32,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
+	inttypes "github.com/hashicorp/terraform-provider-aws/internal/types"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
 	"golang.org/x/sync/errgroup"
@@ -302,14 +303,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		}
 		d.Set(names.AttrSize, restoredVolume.VolumeSizeGB)
 		d.Set(names.AttrSnapshotID, snapshotId)
-		d.Set("outpost_arn", func() *string {
-			if volume.OutpostArn == nil {
-				return nil
-			}
-
-			outputArn := strings.ReplaceAll(*volume.OutpostArn, *volume.VolumeId, d.Id())
-			return &outputArn
-		}())
+		d.Set("outpost_arn", datafyOutpostARN(&volume, d.Id()))
 
 		return diags
 	}
@@ -386,6 +380,10 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 
 	volume, err := findEBSVolumeByID(ctx, conn, d.Id())
 
+	// The schema requires an availability zone, so an empty one means there is no prior state:
+	// the volume is being imported.
+	importing := d.Get(names.AttrAvailabilityZone).(string) == ""
+
 	if !d.IsNewResource() && retry.NotFound(err) {
 		volumeId := d.Id()
 
@@ -412,6 +410,28 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", volumeId)
 				}
 
+				// With no state to keep, the attributes the datafy volumes share with the
+				// source volume they replace are read from one of them, and the datafy
+				// attributes from the array shape Datafy reports, so the configuration must
+				// state that shape.
+				if importing {
+					volume := dvo.Volumes[0]
+					if err := resourceEBSVolumeFlatten(ctx, c, &volume, d); err != nil {
+						return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", volumeId, err)
+					}
+					d.Set(names.AttrARN, ebsVolumeARN(ctx, c, volumeId))
+					d.Set("outpost_arn", datafyOutpostARN(&volume, volumeId))
+					d.Set("final_snapshot", false)
+
+					if mode := datafyVolume.Mode; mode != nil {
+						d.Set(datafy.AttrAutoscaling, mode.Autoscaler)
+						d.Set(datafy.AttrPerformance, mode.Performance)
+						if mode.Performance {
+							d.Set(datafy.AttrPerformanceTier, mode.ArraySize)
+						}
+					}
+				}
+
 				d.Set(names.AttrSize, datafyVolume.Size)
 				d.Set(names.AttrIOPS, datafyVolume.Iops)
 				d.Set(names.AttrThroughput, datafyVolume.Throughput)
@@ -429,6 +449,12 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
+	}
+
+	// A datafy volume is owned by Datafy as part of the volume it replaces; managing it on its
+	// own would let Terraform modify or delete a piece of that volume.
+	if importing && datafy.IsManagedByDatafy(volume.Tags) {
+		return sdkdiag.AppendErrorf(diags, "can't import EBS Volume (%s): it is a datafy volume, import the EBS Volume it replaces (%s) instead", d.Id(), datafy.GetSourceVolumeId(volume.Tags))
 	}
 
 	if err := resourceEBSVolumeFlatten(ctx, c, volume, d); err != nil {
@@ -715,6 +741,34 @@ func deleteEBSVolume(ctx context.Context, conn *ec2.Client, vid string, timeout 
 		return fmt.Errorf("waiting for EBS Volume (%s) delete: %w", vid, err)
 	}
 	return nil
+}
+
+var _ inttypes.SDKv2ImportID = ebsVolumeImportID{}
+
+// ebsVolumeImportID is the import ID of a volume registered without an identity: the volume ID.
+type ebsVolumeImportID struct{}
+
+func (ebsVolumeImportID) Create(d *schema.ResourceData) string {
+	return d.Id()
+}
+
+func (ebsVolumeImportID) Parse(id string) (string, map[string]any, error) {
+	if id == "" {
+		return "", nil, errors.New("import ID must be the EBS Volume ID")
+	}
+
+	return id, nil, nil
+}
+
+// datafyOutpostARN returns the outpost ARN of a datafy volume with the datafy volume's ID
+// replaced by sourceVolumeId, the ID of the volume it replaces, or nil if it has none.
+func datafyOutpostARN(volume *awstypes.Volume, sourceVolumeId string) *string {
+	if volume.OutpostArn == nil {
+		return nil
+	}
+
+	outpostArn := strings.ReplaceAll(aws.ToString(volume.OutpostArn), aws.ToString(volume.VolumeId), sourceVolumeId)
+	return &outpostArn
 }
 
 // Overridable in tests to avoid 30s/10s waits.

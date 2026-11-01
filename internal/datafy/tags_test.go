@@ -1,7 +1,11 @@
 package datafy
 
 import (
+	"slices"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 func TestValidateNoDatafyTags(t *testing.T) {
@@ -43,5 +47,97 @@ func TestValidateNoDatafyTags(t *testing.T) {
 				t.Errorf("ValidateNoDatafyTags() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestGetSourceVolumeId(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []types.Tag
+		want string
+	}{
+		{
+			name: "no tags",
+			tags: nil,
+			want: "",
+		},
+		{
+			name: "not a datafy volume",
+			tags: []types.Tag{{Key: aws.String("Name"), Value: aws.String("my-volume")}},
+			want: "",
+		},
+		{
+			name: "datafy volume",
+			tags: []types.Tag{
+				{Key: aws.String("Managed-By"), Value: aws.String("Datafy.io")},
+				{Key: aws.String("datafy:source-volume:id"), Value: aws.String("vol-123")},
+			},
+			want: "vol-123",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetSourceVolumeId(tt.tags); got != tt.want {
+				t.Errorf("GetSourceVolumeId() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsManagedByDatafy(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []types.Tag
+		want bool
+	}{
+		{
+			name: "no tags",
+			tags: nil,
+			want: false,
+		},
+		{
+			name: "not a datafy volume",
+			tags: []types.Tag{{Key: aws.String("Name"), Value: aws.String("my-volume")}},
+			want: false,
+		},
+		{
+			name: "other manager",
+			tags: []types.Tag{{Key: aws.String("Managed-By"), Value: aws.String("someone-else")}},
+			want: false,
+		},
+		{
+			name: "datafy volume",
+			tags: []types.Tag{
+				{Key: aws.String("Managed-By"), Value: aws.String("Datafy.io")},
+				{Key: aws.String("datafy:source-volume:id"), Value: aws.String("vol-123")},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsManagedByDatafy(tt.tags); got != tt.want {
+				t.Errorf("IsManagedByDatafy() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoveDatafyTags(t *testing.T) {
+	tags := []types.Tag{
+		{Key: aws.String("Managed-By"), Value: aws.String("Datafy.io")},
+		{Key: aws.String("datafy:source-volume:id"), Value: aws.String("vol-123")},
+		{Key: aws.String("Name"), Value: aws.String("my-volume")},
+	}
+	original := slices.Clone(tags)
+
+	for range 2 {
+		got := RemoveDatafyTags(tags)
+		if len(got) != 1 || aws.ToString(got[0].Key) != "Name" || aws.ToString(got[0].Value) != "my-volume" {
+			t.Fatalf("RemoveDatafyTags() = %v, want only Name=my-volume", got)
+		}
+	}
+	if !slices.Equal(tags, original) {
+		t.Errorf("RemoveDatafyTags() changed its input to %v", tags)
 	}
 }
