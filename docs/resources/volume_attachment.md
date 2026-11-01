@@ -27,6 +27,14 @@ resource "aws_volume_attachment" "example" {
 When the volume is [Datafy-managed](https://registry.terraform.io/providers/datafy-io/datafyaws/latest/docs#datafy-managed-volumes):
 
 - Create asks Datafy to attach the volume. Datafy attaches every Datafy-managed volume behind it to the instance, and Terraform waits until all of them are attached.
-- Refresh does not report drift while Datafy manages the volume. When the volume is un-datafied, `volume_id` moves to the new volume ID with a warning.
+- Refresh finds the attachment as long as any Datafy-managed volume behind the volume is attached to the instance. If none is, the attachment is gone, and the next apply asks Datafy to attach the volume again. When the volume is un-datafied, `volume_id` moves to the new volume ID with a warning.
 - Any change fails at plan time.
 - Destroy asks Datafy to detach the volume, and Terraform waits until every Datafy-managed volume is detached. `force_detach` and `stop_instance_before_detaching` are not applied.
+
+## Import
+
+Import an attachment of a Datafy-managed volume by `DEVICE_NAME:VOLUME_ID:INSTANCE_ID`, using the original volume ID, the one Datafy reports for it:
+
+```shell
+terraform import aws_volume_attachment.example /dev/sdh:vol-0123456789abcdef0:i-0123456789abcdef0
+```
