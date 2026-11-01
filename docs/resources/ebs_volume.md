@@ -101,3 +101,11 @@ To create a volume from a Datafy snapshot, set `snapshot_id` to the Datafy snaps
 ## Destroy
 
 Destroying a Datafy-managed volume deletes the Datafy-managed volumes (and the original volume, if it still exists).
+
+## Import
+
+Import a Datafy-managed volume by its original volume ID, the one Datafy reports for it, even though that volume no longer exists in AWS:
+
+```shell
+terraform import aws_ebs_volume.example vol-0123456789abcdef0
+```
