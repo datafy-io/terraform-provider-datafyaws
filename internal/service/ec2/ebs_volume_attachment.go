@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
 	"github.com/hashicorp/terraform-provider-aws/internal/datafy"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/slices"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 )
 
@@ -187,9 +188,21 @@ func resourceVolumeAttachmentRead(ctx context.Context, d *schema.ResourceData, m
 		// if not found on aws, it may mean we datafied it and deleted the volume
 		dc := meta.(*conns.AWSClient).DatafyClient()
 		if datafyVolume, err := dc.GetVolume(volumeID); err == nil {
-			// if we are managing this volume, just return the state as is
+			// A managed volume is attached while any of its datafy volumes is attached to the
+			// instance; the datafy volumes' device names are Datafy's, not device_name.
 			if datafyVolume.IsManaged {
-				return diags
+				dvo, err := conn.DescribeVolumes(datafy.DescribeDatafiedVolumesInput(volumeID))
+				if err != nil {
+					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s) Attachement (%s): %s", volumeID, instanceID, err)
+				}
+
+				if slices.Any(dvo.Volumes, func(volume *ec2.Volume) bool {
+					return slices.Any(volume.Attachments, func(attachment *ec2.VolumeAttachment) bool {
+						return aws.StringValue(attachment.InstanceId) == instanceID
+					})
+				}) {
+					return diags
+				}
 			}
 
 			// if the volume was replaced (new source due to undatafy), it means the new
