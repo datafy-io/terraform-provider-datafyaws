@@ -1371,7 +1371,8 @@ func testAccDatafyImportTestCase(ctx context.Context, t *testing.T, config strin
 					testAccDatafyCheckArraySize(dv, arraySize),
 				),
 			},
-		}, testAccDatafyImportSteps(dv, config)...), steps...),
+			// Created as a Datafy volume, state holds no snapshot ID.
+		}, testAccDatafyImportSteps(dv, config, "snapshot_id")...), steps...),
 	}
 }
 
