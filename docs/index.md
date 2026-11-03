@@ -13,13 +13,21 @@ When Datafy optimizes ("datafies") an EBS volume, it replaces the original volum
 
 ## Versions
 
-This version of DatafyAWS is built on `hashicorp/aws` 6.42, for use alongside `hashicorp/aws` 6.x. A version number has the form `<MAJOR>.<MINOR>.<PATCH>`:
+This version of DatafyAWS is built on `hashicorp/aws` 6.42, for use alongside `hashicorp/aws` 6.x. A version number carries both the `hashicorp/aws` version and the Datafy version, in the form `<MAJOR>.<MINOR>.<PATCH>`:
 
-- `MAJOR` is the `hashicorp/aws` release the build is based on: major × 1000 + minor. `6042` is built on `hashicorp/aws` 6.42.
-- `MINOR` is the minor version of the Datafy release. `6042.4.0` contains Datafy release 1.4.
-- `PATCH` increases by one with every patch release, whether it carries a Datafy fix or a `hashicorp/aws` patch release.
+- `MAJOR` is the `hashicorp/aws` major version.
+- `MINOR` is the `hashicorp/aws` minor × 100 + the Datafy minor. `6.4204.0` is `hashicorp/aws` 6.42.0 with Datafy 1.4.0.
+- `PATCH` is the `hashicorp/aws` patch × 100 + the Datafy patch. `6.4204.101` is `hashicorp/aws` 6.42.1 with Datafy 1.4.1.
 
-Use the version constraint `"~> 6042.0"`. It picks up every new Datafy release on `hashicorp/aws` 6.42. Constraints such as `~> 6.0` do **not** match any DatafyAWS release.
+To decode `MINOR` or `PATCH`, split it from the right: the last two digits are the Datafy part, and the rest is the `hashicorp/aws` part (empty means 0). Every release note states the decoded versions, for example "AWS 6.42.1 / Datafy 1.4.1". Versions always increase, whichever part changes.
+
+Version constraints work as they do for `hashicorp/aws`:
+
+- `"~> 6.4204"` picks up every 6.x release from `hashicorp/aws` 6.42 with Datafy 1.4 onward, like `~> 6.42` does for `hashicorp/aws`.
+- `"~> 6.4204.0"` stays on `hashicorp/aws` 6.42 with Datafy 1.4 and picks up only patch releases.
+- `">= 6.4200.0, < 6.4300.0"` stays on `hashicorp/aws` 6.42 with any Datafy version.
+
+Releases up to and including `6042.4.0` used an earlier scheme (`6042` for `hashicorp/aws` 6.42) and do not match these constraints. Replace a constraint such as `"~> 6042.0"` with `"~> 6.4204"`.
 
 The resources and provider-block arguments available through `provider "datafyaws"` are those of `hashicorp/aws` 6.42, even if your `hashicorp/aws` provider is newer. An argument that `hashicorp/aws` added later is rejected in a `provider "datafyaws"` block.
 
@@ -62,7 +70,7 @@ terraform {
     }
     datafyaws = {
       source  = "datafy-io/datafyaws"
-      version = "~> 6042.0"
+      version = "~> 6.0"
     }
   }
 }
