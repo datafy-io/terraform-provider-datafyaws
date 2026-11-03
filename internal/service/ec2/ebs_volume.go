@@ -35,8 +35,8 @@ import (
 )
 
 var (
-	// datafyAttrs select whether and how a volume is datafied.
-	datafyAttrs = []string{datafy.AttrAutoscaling, datafy.AttrPerformance, datafy.AttrPerformanceTier}
+	// datafyModeAttrs select whether and how a volume is datafied.
+	datafyModeAttrs = []string{datafy.AttrAutoscaling, datafy.AttrPerformance, datafy.AttrPerformanceTier}
 
 	// datafyMutableAttrs are the attributes a datafied volume still accepts changes to, which
 	// reach Datafy as a volume modification rather than Terraform as an update.
@@ -83,7 +83,7 @@ func resourceEBSVolume() *schema.Resource {
 			},
 			func(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
 				changes := slices.DeleteFunc(diff.GetChangedKeysPrefix(""), func(s string) bool {
-					return strings.HasPrefix(s, "tags.") || slices.Contains(datafyMutableAttrs, s)
+					return strings.HasPrefix(s, "tags.") || slices.Contains(datafyMutableAttrs, s) || slices.Contains(datafyModeAttrs, s)
 				})
 				if len(changes) > 0 {
 					dc := meta.(*conns.AWSClient).DatafyClient(ctx)
@@ -303,14 +303,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		d.Set(names.AttrIOPS, volume.Iops)
 		d.Set(names.AttrKMSKeyID, volume.KmsKeyId)
 		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
-		d.Set("outpost_arn", func() *string {
-			if volume.OutpostArn == nil {
-				return nil
-			}
-
-			outputArn := strings.ReplaceAll(*volume.OutpostArn, *volume.VolumeId, d.Id())
-			return &outputArn
-		}())
+		d.Set("outpost_arn", datafyOutpostARN(&volume, d.Id()))
 		d.Set(names.AttrSize, restoredVolume.VolumeSizeGB)
 		d.Set(names.AttrSnapshotID, snapshotId)
 		d.Set(names.AttrThroughput, volume.Throughput)
@@ -405,6 +398,10 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 
 	volume, err := findEBSVolumeByID(ctx, conn, d.Id())
 
+	// The schema requires an availability zone, so an empty one means there is no prior state:
+	// the volume is being imported.
+	importing := d.Get(names.AttrAvailabilityZone).(string) == ""
+
 	if !d.IsNewResource() && tfresource.NotFound(err) {
 		volumeId := d.Id()
 
@@ -431,6 +428,25 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", volumeId)
 				}
 
+				// With no state to keep, the attributes the datafy volumes share with the
+				// source volume they replace are read from one of them, and the datafy
+				// attributes from the array shape Datafy reports, so the configuration must
+				// state that shape.
+				if importing {
+					volume := dvo.Volumes[0]
+					resourceEBSVolumeFlatten(ctx, meta, &volume, d)
+					d.Set("outpost_arn", datafyOutpostARN(&volume, volumeId))
+					d.Set("final_snapshot", false)
+
+					if mode := datafyVolume.Mode; mode != nil {
+						d.Set(datafy.AttrAutoscaling, mode.Autoscaler)
+						d.Set(datafy.AttrPerformance, mode.Performance)
+						if mode.Performance {
+							d.Set(datafy.AttrPerformanceTier, mode.ArraySize)
+						}
+					}
+				}
+
 				d.Set(names.AttrSize, datafyVolume.Size)
 				d.Set(names.AttrIOPS, datafyVolume.Iops)
 				d.Set(names.AttrThroughput, datafyVolume.Throughput)
@@ -451,6 +467,19 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 		return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
 	}
 
+	// A datafy volume is owned by Datafy as part of the volume it replaces; managing it on its
+	// own would let Terraform modify or delete a piece of that volume.
+	if importing && datafy.IsManagedByDatafy(volume.Tags) {
+		return sdkdiag.AppendErrorf(diags, "can't import EBS Volume (%s): it is a datafy volume, import the EBS Volume it replaces (%s) instead", d.Id(), datafy.GetSourceVolumeId(volume.Tags))
+	}
+
+	resourceEBSVolumeFlatten(ctx, meta, volume, d)
+
+	return diags
+}
+
+// resourceEBSVolumeFlatten sets d from volume, with the ARN naming d.Id().
+func resourceEBSVolumeFlatten(ctx context.Context, meta any, volume *awstypes.Volume, d *schema.ResourceData) {
 	snapshotId := volume.SnapshotId
 	if dsnapId := datafy.GetRestoredFromSnapshotId(volume.Tags); dsnapId != "" {
 		snapshotId = aws.String(dsnapId)
@@ -477,8 +506,6 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 	d.Set(names.AttrType, volume.VolumeType)
 
 	setTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
-
-	return diags
 }
 
 func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
@@ -487,7 +514,7 @@ func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta a
 
 	// The datafy attributes have no volume-modification semantics: the only change that
 	// reaches Update is their removal on offboarding, which only rewrites state.
-	if d.HasChangesExcept(append([]string{names.AttrTags, names.AttrTagsAll}, datafyAttrs...)...) {
+	if d.HasChangesExcept(append([]string{names.AttrTags, names.AttrTagsAll}, datafyModeAttrs...)...) {
 		// once the volume is managed, datafy has control on the volume, and it can't be updated via terraform.
 		// if it was replaced (new source due to undatafy), so we set the new id and the volume properties to the state
 		// and give back control to terraform
@@ -682,6 +709,17 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta a
 	return diags
 }
 
+// datafyOutpostARN returns the outpost ARN of a datafy volume with the datafy volume's ID
+// replaced by sourceVolumeId, the ID of the volume it replaces, or nil if it has none.
+func datafyOutpostARN(volume *awstypes.Volume, sourceVolumeId string) *string {
+	if volume.OutpostArn == nil {
+		return nil
+	}
+
+	outpostArn := strings.ReplaceAll(aws.ToString(volume.OutpostArn), aws.ToString(volume.VolumeId), sourceVolumeId)
+	return &outpostArn
+}
+
 // Overridable in tests to avoid 30s/10s waits.
 var (
 	datafyVolumeModifiedDelay      = 10 * time.Second
@@ -771,6 +809,27 @@ func datafyAttrIsSet(v cty.Value) bool {
 	return false
 }
 
+// datafyModeHas reports whether mode, the array shape Datafy reports for a volume, has the
+// setting v states for attr, one of datafyModeAttrs. v must be known and set. A nil mode has no
+// setting.
+func datafyModeHas(mode *datafy.Mode, attr string, v cty.Value) bool {
+	if mode == nil {
+		return false
+	}
+
+	switch attr {
+	case datafy.AttrAutoscaling:
+		return v.True() == mode.Autoscaler
+	case datafy.AttrPerformance:
+		return v.True() == mode.Performance
+	case datafy.AttrPerformanceTier:
+		tier, _ := v.AsBigFloat().Int64()
+		return tier == int64(mode.ArraySize)
+	}
+
+	return false
+}
+
 // datafyAttrsUnknown reports whether the configuration states a datafy attribute whose value is
 // not resolved yet.
 func datafyAttrsUnknown(rawConfig cty.Value) bool {
@@ -778,7 +837,7 @@ func datafyAttrsUnknown(rawConfig cty.Value) bool {
 		return false
 	}
 
-	for _, attr := range datafyAttrs {
+	for _, attr := range datafyModeAttrs {
 		if !rawConfig.Type().HasAttribute(attr) {
 			continue
 		}
@@ -804,9 +863,10 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 	}
 
 	// The datafy attributes are immutable once the volume exists: they can't be set, unset or
-	// changed. The only allowed config change is removing one once the volume is no longer
-	// datafied (offboarding). Volumes from provider versions that predate an attribute (nil in
-	// state) stay nil. Raw values are used because with no schema default an omitted attribute
+	// changed. Two config changes are allowed: removing one once the volume is no longer
+	// datafied (offboarding), and stating one that state does not carry but the datafied volume
+	// has, as Datafy reports it (a volume datafied outside Terraform, or one from a provider
+	// version that predates the attribute). Raw values are used because with no schema default an omitted attribute
 	// produces no plan diff.
 	if diff.Id() != "" {
 		// rawState is the prior state as Terraform stored it after the last apply,
@@ -824,7 +884,7 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 				return meta.(*conns.AWSClient).DatafyClient(ctx).GetVolume(diff.Id())
 			})
 
-			for _, attr := range datafyAttrs {
+			for _, attr := range datafyModeAttrs {
 				// HasAttribute guards keep this working when the attribute is absent from
 				// the schema (like in the vanilla AWS provider).
 				if !rawState.Type().HasAttribute(attr) || !rawConfig.Type().HasAttribute(attr) {
@@ -834,6 +894,16 @@ func resourceDatafyEBSVolumeCustomizeDiff(ctx context.Context, diff *schema.Reso
 				stateVal := rawState.GetAttr(attr)
 				configVal := rawConfig.GetAttr(attr)
 				switch {
+				// Stating a setting that state does not carry records what the volume has, when
+				// Datafy reports the volume has it. Anything else is a change.
+				case configVal.IsKnown() && datafyAttrIsSet(configVal) && !datafyAttrIsSet(stateVal):
+					datafyVolume, err := getVolume()
+					if err != nil && !datafy.NotFound(err) {
+						return fmt.Errorf("reading datafy EBS Volume (%s): %w", diff.Id(), err)
+					}
+					if err != nil || !datafyVolume.IsManaged || !datafyModeHas(datafyVolume.Mode, attr, configVal) {
+						return fmt.Errorf("changing `%s` of an existing EBS Volume (%s) is not allowed", attr, diff.Id())
+					}
 				// Writing a zero value where there is nothing set is not a change: a volume
 				// that predates an attribute holds null for it, and one the configuration
 				// never held holds the zero, so neither side carries a setting.
