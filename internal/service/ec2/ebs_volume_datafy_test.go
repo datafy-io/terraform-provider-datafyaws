@@ -1250,8 +1250,8 @@ func testAccDatafyImportTestCase(ctx context.Context, t *testing.T, config strin
 				),
 			},
 		},
-			// Created as a Datafy volume, state holds the ARN of one of its datafy volumes.
-			testAccDatafyImportSteps(dv, config, names.AttrARN),
+			// Created as a Datafy volume, state holds no snapshot ID.
+			testAccDatafyImportSteps(dv, config, names.AttrSnapshotID),
 			steps,
 		),
 	}
