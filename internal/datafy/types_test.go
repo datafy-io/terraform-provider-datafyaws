@@ -122,3 +122,38 @@ func TestVolumeUnmarshalJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestVolumeUnmarshalJSONMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		jsonData []byte
+		want     *Mode
+	}{
+		{
+			name:     "no datafyMode",
+			jsonData: []byte(`{"volumeId": "vol-12345", "isManaged": true}`),
+			want:     nil,
+		},
+		{
+			name:     "performance array",
+			jsonData: []byte(`{"volumeId": "vol-12345", "isManaged": true, "datafyMode": {"autoscaler": false, "performance": true, "arraySize": 4}}`),
+			want:     &Mode{Autoscaler: false, Performance: true, ArraySize: 4},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var v Volume
+			if err := json.Unmarshal(tt.jsonData, &v); err != nil {
+				t.Fatalf("UnmarshalJSON failed: %v", err)
+			}
+
+			switch {
+			case tt.want == nil && v.Mode != nil:
+				t.Errorf("Expected no Mode, got %+v", *v.Mode)
+			case tt.want != nil && (v.Mode == nil || *v.Mode != *tt.want):
+				t.Errorf("Expected Mode %+v, got %+v", *tt.want, v.Mode)
+			}
+		})
+	}
+}

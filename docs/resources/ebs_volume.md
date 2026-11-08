@@ -75,10 +75,11 @@ The following are **creation parameters**. They take effect only when the volume
 - Datafy receives `availability_zone`, `size`, `iops`, `throughput`, `encrypted`, `kms_key_id`, `tags`, and the three `datafy_*` arguments. Do not combine them with `snapshot_id`, `multi_attach_enabled`, or `outpost_arn`; those are not applied to a Datafy volume.
 - The volume is Datafy-managed from creation.
 - The one exception to "cannot be removed": once the volume is no longer datafied, you can delete these arguments from the configuration. This only updates state; the volume itself is not changed.
+- The one exception to "cannot be added": when state does not hold an argument (a volume datafied outside Terraform, or one from a provider release that predates it), you can add it with the value the volume has, as Datafy reports it. This only updates state; the volume itself is not changed.
 
 ### Upgrading from `autoscaling_native`
 
-Releases up to and including 4067.4.0 had a single argument, `autoscaling_native`, which `datafy_autoscaling` replaces. When you upgrade the provider, replace `autoscaling_native = true` with `datafy_autoscaling = true` in your configuration; Terraform rejects `autoscaling_native` as an unsupported argument. The provider converts existing state automatically, so the next plan shows no changes.
+Releases up to and including 4067.4.0 had a single argument, `autoscaling_native`, which `datafy_autoscaling` replaces. When you upgrade the provider, replace `autoscaling_native = true` with `datafy_autoscaling = true` in your configuration; Terraform rejects `autoscaling_native` as an unsupported argument. Existing state drops `autoscaling_native`, so the next plan shows `datafy_autoscaling` being added in place; applying it only updates state. Datafy must still report the volume as autoscaling: if the volume is no longer datafied, remove the argument instead of renaming it.
 
 ## Restoring from a Datafy snapshot
 
