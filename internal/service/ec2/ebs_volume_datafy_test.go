@@ -579,10 +579,28 @@ func TestAccDatafyEC2EBSVolume_datafyFlagsDatafied(t *testing.T) {
 					testAccCheckVolumeExists(ctx, t, resourceName, &v),
 				),
 			},
+			// A datafied volume has the default shape, an autoscaling pair, which the
+			// configuration may state.
 			{
-				PreConfig:   createDatafyVolume(ctx, &v),
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
-				ExpectError: regexache.MustCompile("changing `datafy_autoscaling` of an existing EBS Volume"),
+				PreConfig: createDatafyVolume(ctx, &v),
+				Config:    testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionUpdate),
+					},
+				},
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				ExpectError: regexache.MustCompile("changing `datafy_performance` of an existing EBS Volume"),
+			},
+			{
+				Config: testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectEmptyPlan(),
+					},
+				},
 			},
 		},
 	})
@@ -716,6 +734,7 @@ func createDatafyVolume(ctx context.Context, v *awstypes.Volume) func() {
 				IsManaged:  true,
 				IsDatafied: true,
 				ReplacedBy: "",
+				Mode:       &datafy.Mode{Autoscaler: true, Performance: false, ArraySize: 2},
 			})
 			return nil
 		}()
