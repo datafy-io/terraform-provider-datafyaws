@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       datafy_version:
-        description: 'Datafy version without the major (MINOR.PATCH, each 0-99, e.g. 4.0 for Datafy 1.4.0)'
+        description: 'Datafy version (MAJOR.MINOR.PATCH, e.g. 1.4.0; MAJOR must be 1, MINOR and PATCH 0-99)'
         required: true
         type: string
+      legacy_version:
+        description: 'Use the deprecated legacy version format <AWS_MAJOR*1000 + AWS_MINOR>.<DATAFY_MINOR>.<DATAFY_PATCH> (e.g. 6042.4.0); the release docs get a deprecation notice'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -18,21 +23,38 @@ jobs:
   tag:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.tag.outputs.version }}
-      aws_version: ${{ steps.tag.outputs.aws_version }}
-      datafy_version: ${{ steps.tag.outputs.datafy_version }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Version format: <AWS_MAJOR>.<AWS_MINOR*100 + DATAFY_MINOR>.<AWS_PATCH*100 + DATAFY_PATCH>
+      # Default version format: <AWS_MAJOR>.<AWS_MINOR*100 + DATAFY_MINOR>.<AWS_PATCH*100 + DATAFY_PATCH>
       # e.g. AWS 5.100.1 + Datafy 1.5.1 -> v5.10005.101. The Datafy major (always 1) is not encoded.
-      - name: Create tag
-        id: tag
+      # Legacy version format (legacy_version=true): <AWS_MAJOR*1000 + AWS_MINOR>.<DATAFY_MINOR>.<DATAFY_PATCH>
+      # e.g. AWS 6.42.x + Datafy 1.4.0 -> v6042.4.0. The AWS patch is not encoded.
+      - name: Validate Datafy version
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DATAFY_INPUT: ${{ inputs.datafy_version }}
+          DATAFY_VERSION: ${{ inputs.datafy_version }}
+        run: |
+          set -euo pipefail
+
+          if ! echo "$DATAFY_VERSION" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$'; then
+            echo "ERROR: datafy_version '$DATAFY_VERSION' must be MAJOR.MINOR.PATCH with MINOR and PATCH 0-99 and no leading zeros"
+            exit 1
+          fi
+
+          # Neither version format encodes the Datafy major, so a different major cannot be released.
+          DATAFY_MAJOR=$(echo "$DATAFY_VERSION" | cut -d. -f1)
+          if [ "$DATAFY_MAJOR" != "1" ]; then
+            echo "ERROR: datafy_version '$DATAFY_VERSION' must have major 1, got $DATAFY_MAJOR"
+            exit 1
+          fi
+
+      - name: Calculate versions
+        id: version
+        env:
+          DATAFY_VERSION: ${{ inputs.datafy_version }}
         run: |
           set -euo pipefail
 
@@ -48,41 +70,82 @@ jobs:
           fi
           IFS=. read -r AWS_MAJOR AWS_MINOR AWS_PATCH <<< "$AWS_VERSION"
 
-          if ! echo "$DATAFY_INPUT" | grep -qE '^(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)$'; then
-            echo "ERROR: datafy_version '$DATAFY_INPUT' must be MINOR.PATCH with each part 0-99 and no leading zeros"
-            exit 1
-          fi
-          IFS=. read -r DATAFY_MINOR DATAFY_PATCH <<< "$DATAFY_INPUT"
-          DATAFY_VERSION="1.${DATAFY_MINOR}.${DATAFY_PATCH}"
+          IFS=. read -r _ DATAFY_MINOR DATAFY_PATCH <<< "$DATAFY_VERSION"
 
           VERSION="v${AWS_MAJOR}.$((AWS_MINOR * 100 + DATAFY_MINOR)).$((AWS_PATCH * 100 + DATAFY_PATCH))"
+          LEGACY_LINE=$(printf "%d%03d" "$AWS_MAJOR" "$AWS_MINOR")
+          LEGACY_VERSION="v${LEGACY_LINE}.${DATAFY_MINOR}.${DATAFY_PATCH}"
 
-          if git tag --list | grep -qxF "$VERSION"; then
-            echo "ERROR: tag $VERSION already exists"
+          echo "AWS ${AWS_VERSION} / Datafy ${DATAFY_VERSION}: version $VERSION, legacy version $LEGACY_VERSION"
+          {
+            echo "version=$VERSION"
+            echo "legacy_version=$LEGACY_VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag
+        id: tag
+        env:
+          TAG: ${{ inputs.legacy_version && steps.version.outputs.legacy_version || steps.version.outputs.version }}
+          LEGACY: ${{ inputs.legacy_version }}
+        run: |
+          set -euo pipefail
+
+          if git tag --list | grep -qxF "$TAG"; then
+            echo "ERROR: tag $TAG already exists"
             exit 1
           fi
 
           # Versions on a release line must strictly increase and the Datafy minor must never decrease.
-          LATEST=$(git tag --list "v${AWS_MAJOR}.*" | grep -E "^v${AWS_MAJOR}\.[0-9]+\.[0-9]+$" | sort -V | tail -n1 || true)
+          LINE=$(echo "$TAG" | cut -d. -f1)
+          LATEST=$(git tag --list "${LINE}.*" | grep -E "^${LINE}\.[0-9]+\.[0-9]+$" | sort -V | tail -n1 || true)
           if [ -n "$LATEST" ]; then
-            if [ "$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -n1)" != "$VERSION" ]; then
-              echo "ERROR: $VERSION is not greater than the latest release $LATEST on the ${AWS_MAJOR}.x line"
+            if [ "$(printf '%s\n%s\n' "$LATEST" "$TAG" | sort -V | tail -n1)" != "$TAG" ]; then
+              echo "ERROR: $TAG is not greater than the latest release $LATEST on the ${LINE}.x line"
               exit 1
             fi
-            LATEST_DATAFY_MINOR=$(( $(echo "$LATEST" | cut -d. -f2) % 100 ))
+            DATAFY_MINOR=$(echo "$TAG" | cut -d. -f2)
+            LATEST_DATAFY_MINOR=$(echo "$LATEST" | cut -d. -f2)
+            if [ "$LEGACY" != "true" ]; then
+              DATAFY_MINOR=$(( DATAFY_MINOR % 100 ))
+              LATEST_DATAFY_MINOR=$(( LATEST_DATAFY_MINOR % 100 ))
+            fi
             if [ "$DATAFY_MINOR" -lt "$LATEST_DATAFY_MINOR" ]; then
               echo "ERROR: Datafy minor $DATAFY_MINOR is lower than $LATEST_DATAFY_MINOR used by $LATEST"
               exit 1
             fi
           fi
 
-          gh api repos/${{ github.repository }}/git/refs --method POST -f ref="refs/tags/${VERSION}" -f sha="${{ github.sha }}"
-          echo "Created tag: $VERSION (AWS ${AWS_VERSION} / Datafy ${DATAFY_VERSION})"
-          {
-            echo "version=$VERSION"
-            echo "aws_version=$AWS_VERSION"
-            echo "datafy_version=$DATAFY_VERSION"
-          } >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # The registry renders each version's docs from its tagged commit, so a legacy release is
+      # tagged on a branchless commit that adds a deprecation notice to the provider docs.
+      - name: Add deprecation notice
+        if: inputs.legacy_version
+        env:
+          LEGACY_VERSION: ${{ steps.version.outputs.legacy_version }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if ! grep -qx '# DatafyAWS Provider' docs/index.md; then
+            echo "ERROR: '# DatafyAWS Provider' heading not found in docs/index.md"
+            exit 1
+          fi
+
+          NOTICE="~> **Deprecated:** We've changed our version format. This release, \`${LEGACY_VERSION#v}\`, is \`${VERSION#v}\` in the new format. Please update your version constraint to the new format; see [Versions](#versions) for how it works."
+          awk -v notice="$NOTICE" '{ print } $0 == "# DatafyAWS Provider" { print ""; print notice }' docs/index.md > docs/index.md.tmp
+          mv docs/index.md.tmp docs/index.md
+
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Deprecation notice for ${LEGACY_VERSION}" docs/index.md
+
+      - name: Create tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:refs/tags/${TAG}"
+          echo "Created tag $TAG on $(git rev-parse HEAD)"
 
   goreleaser:
     needs: tag
@@ -91,7 +154,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.tag.outputs.version }}
+          ref: ${{ needs.tag.outputs.tag }}
 
       - uses: actions/setup-go@v5
         with:
@@ -105,6 +168,9 @@ jobs:
           gpg_private_key: ${{ secrets.TERRAFORM_PROVIDER_GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.TERRAFORM_PROVIDER_GPG_PASSPHRASE }}
 
+      - name: Read AWS version
+        run: echo "AWS_VERSION=$(sed 's/^v//' .aws-version | tr -d '[:space:]')" >> "$GITHUB_ENV"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -113,5 +179,4 @@ jobs:
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_VERSION: ${{ needs.tag.outputs.aws_version }}
-          DATAFY_VERSION: ${{ needs.tag.outputs.datafy_version }}
+          DATAFY_VERSION: ${{ inputs.datafy_version }}
