@@ -378,6 +378,7 @@ func createDatafyVolume(ctx context.Context, v *ec2.Volume) func() {
 				IsManaged:  true,
 				IsDatafied: true,
 				ReplacedBy: "",
+				Mode:       &datafy.Mode{Autoscaler: true, Performance: false, ArraySize: 2},
 			})
 			return nil
 		}()
@@ -903,8 +904,9 @@ func TestAccDatafyEC2EBSVolume_datafyFlagsUndatafiedFromUI(t *testing.T) {
 	})
 }
 
-// a standard volume that was datafied from the UI. Asking for an optimization errors: the
-// volume already exists, and datafy owns it.
+// a standard volume that was datafied from the UI has the default shape, an autoscaling pair,
+// which the configuration may state. Asking for a performance array errors: the volume already
+// exists, and datafy owns it.
 func TestAccDatafyEC2EBSVolume_datafyFlagsDatafied(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
@@ -924,9 +926,19 @@ func TestAccDatafyEC2EBSVolume_datafyFlagsDatafied(t *testing.T) {
 				),
 			},
 			{
-				PreConfig:   createDatafyVolume(ctx, &v),
-				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
-				ExpectError: regexp.MustCompile("changing `datafy_autoscaling` of an existing EBS Volume"),
+				PreConfig: createDatafyVolume(ctx, &v),
+				Config:    testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(resourceName, datafy.AttrAutoscaling, "true"),
+				),
+			},
+			{
+				Config:      testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true), withPerformance(true), withPerformanceTier(4, 12000, 500)),
+				ExpectError: regexp.MustCompile("changing `datafy_performance` of an existing EBS Volume"),
+			},
+			{
+				Config:   testAccDatafyEBSVolumeConfig(rName, withAutoscaling(true)),
+				PlanOnly: true,
 			},
 		},
 	})
