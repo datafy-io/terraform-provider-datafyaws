@@ -161,6 +161,41 @@ func TestDatafyAttrIsSet(t *testing.T) {
 	}
 }
 
+func TestDatafyModeHas(t *testing.T) {
+	autoscalingPair := &datafy.Mode{Autoscaler: true, ArraySize: 2}
+	performanceArray := &datafy.Mode{Autoscaler: false, Performance: true, ArraySize: 4}
+	autoscalingPerformanceArray := &datafy.Mode{Autoscaler: true, Performance: true, ArraySize: 6}
+
+	testCases := []struct {
+		name string
+		mode *datafy.Mode
+		attr string
+		val  cty.Value
+		want bool
+	}{
+		{name: "no mode reported", attr: datafy.AttrAutoscaling, val: cty.True},
+		{name: "autoscaling pair has autoscaling", mode: autoscalingPair, attr: datafy.AttrAutoscaling, val: cty.True, want: true},
+		{name: "autoscaling pair has no performance", mode: autoscalingPair, attr: datafy.AttrPerformance, val: cty.True},
+		{name: "autoscaling pair has no tier", mode: autoscalingPair, attr: datafy.AttrPerformanceTier, val: cty.NumberIntVal(4)},
+		{name: "performance array has no autoscaling", mode: performanceArray, attr: datafy.AttrAutoscaling, val: cty.True},
+		{name: "performance array has performance", mode: performanceArray, attr: datafy.AttrPerformance, val: cty.True, want: true},
+		{name: "performance array has its tier", mode: performanceArray, attr: datafy.AttrPerformanceTier, val: cty.NumberIntVal(4), want: true},
+		{name: "performance array has no other tier", mode: performanceArray, attr: datafy.AttrPerformanceTier, val: cty.NumberIntVal(6)},
+		{name: "autoscaling performance array has autoscaling", mode: autoscalingPerformanceArray, attr: datafy.AttrAutoscaling, val: cty.True, want: true},
+		{name: "autoscaling performance array has performance", mode: autoscalingPerformanceArray, attr: datafy.AttrPerformance, val: cty.True, want: true},
+		{name: "autoscaling performance array has its tier", mode: autoscalingPerformanceArray, attr: datafy.AttrPerformanceTier, val: cty.NumberIntVal(6), want: true},
+		{name: "autoscaling performance array has no other tier", mode: autoscalingPerformanceArray, attr: datafy.AttrPerformanceTier, val: cty.NumberIntVal(4)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := datafyModeHas(tc.mode, tc.attr, tc.val); got != tc.want {
+				t.Fatalf("expected %t, got %t", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestValidateDatafyThroughput(t *testing.T) {
 	testCases := []struct {
 		name        string
