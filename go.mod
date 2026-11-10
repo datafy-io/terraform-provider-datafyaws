@@ -76,6 +76,7 @@ require (
 	github.com/shopspring/decimal v1.3.1
 	golang.org/x/crypto v0.9.0
 	golang.org/x/exp v0.0.0-20230206171751-46f607a40771
+	golang.org/x/sync v0.1.0
 	golang.org/x/tools v0.6.0
 	gopkg.in/dnaeon/go-vcr.v3 v3.1.2
 	gopkg.in/yaml.v2 v2.4.0
