@@ -664,7 +664,7 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta a
 	g.SetLimit(maxConcurrentVolumeDeletes)
 	for i, vid := range volumesIDs {
 		g.Go(func() error {
-			errs[i] = deleteEBSVolume(ctx, conn, vid, d.Timeout(schema.TimeoutDelete))
+			errs[i] = deleteEBSVolume(ctx, d, conn, vid)
 			return nil
 		})
 	}
@@ -682,8 +682,9 @@ const maxConcurrentVolumeDeletes = 8
 
 // deleteEBSVolume deletes a single volume and waits for it to disappear.
 // A volume that no longer exists is treated as deleted.
-func deleteEBSVolume(ctx context.Context, conn *ec2.Client, vid string, timeout time.Duration) error {
+func deleteEBSVolume(ctx context.Context, d *schema.ResourceData, conn *ec2.Client, vid string) error {
 	log.Printf("[DEBUG] Deleting EBS Volume: %s", vid)
+	timeout := d.Timeout(schema.TimeoutDelete)
 	input := ec2.DeleteVolumeInput{VolumeId: aws.String(vid)}
 
 	_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, timeout,
@@ -696,11 +697,11 @@ func deleteEBSVolume(ctx context.Context, conn *ec2.Client, vid string, timeout 
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("deleting EBS Volume (%s): %w", vid, err)
+		return fmt.Errorf("deleting datafy volume (%s) of EBS Volume (%s): %w", vid, d.Id(), err)
 	}
 
 	if _, err := waitVolumeDeleted(ctx, conn, vid, timeout); err != nil {
-		return fmt.Errorf("waiting for EBS Volume (%s) delete: %w", vid, err)
+		return fmt.Errorf("waiting for datafy volume (%s) of EBS Volume (%s) delete: %w", vid, d.Id(), err)
 	}
 	return nil
 }
