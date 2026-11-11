@@ -3,6 +3,8 @@
 
 # DatafyAWS Provider
 
+~> **Deprecated:** We've changed our version format. This release, `6042.6.0`, is `6.4206.0` in the new format. Please update your version constraint to the new format; see [Versions](#versions) for how it works.
+
 The **DatafyAWS provider** is a build of the official [Terraform AWS Provider](https://github.com/hashicorp/terraform-provider-aws) maintained by [Datafy](https://datafy.io). It contains every resource and data source of `hashicorp/aws` unchanged, plus Datafy-aware behavior for `aws_ebs_volume` and `aws_volume_attachment`.
 
 Use it side by side with `hashicorp/aws`: keep `hashicorp/aws` as your default provider, and set `provider = datafyaws` only on the EBS volume and volume attachment resources that Datafy may manage. For any argument or attribute not described in these pages, the [hashicorp/aws documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) applies.
