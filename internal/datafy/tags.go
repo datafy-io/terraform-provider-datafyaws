@@ -50,10 +50,28 @@ func TagsFrom(ts []types.TagSpecification, rt types.ResourceType) map[string]str
 }
 
 func RemoveDatafyTags(tags []types.Tag) []types.Tag {
-	return slices.DeleteFunc(tags, func(t types.Tag) bool {
+	return slices.DeleteFunc(slices.Clone(tags), func(t types.Tag) bool {
 		key := aws.ToString(t.Key)
 		return strings.HasPrefix(key, tagsPrefix) || (key == managedByTagKey && aws.ToString(t.Value) == managedByTagValue)
 	})
+}
+
+// IsManagedByDatafy reports whether the tags mark a resource Datafy created and owns.
+func IsManagedByDatafy(tags []types.Tag) bool {
+	return slices.ContainsFunc(tags, func(t types.Tag) bool {
+		return aws.ToString(t.Key) == managedByTagKey && aws.ToString(t.Value) == managedByTagValue
+	})
+}
+
+// GetSourceVolumeId returns the ID of the volume a datafy volume replaces from the datafy
+// volume's tags, or an empty string if the tags don't name one.
+func GetSourceVolumeId(tags []types.Tag) string {
+	for _, t := range tags {
+		if aws.ToString(t.Key) == sourceVolumeTagKey {
+			return aws.ToString(t.Value)
+		}
+	}
+	return ""
 }
 
 func GetRestoredFromSnapshotId(tags []types.Tag) string {

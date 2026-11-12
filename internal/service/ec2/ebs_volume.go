@@ -296,14 +296,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta a
 		d.Set(names.AttrIOPS, volume.Iops)
 		d.Set(names.AttrKMSKeyID, volume.KmsKeyId)
 		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
-		d.Set("outpost_arn", func() *string {
-			if volume.OutpostArn == nil {
-				return nil
-			}
-
-			outputArn := strings.ReplaceAll(*volume.OutpostArn, *volume.VolumeId, d.Id())
-			return &outputArn
-		}())
+		d.Set("outpost_arn", datafyOutpostARN(&volume, d.Id()))
 		d.Set(names.AttrSize, restoredVolume.VolumeSizeGB)
 		d.Set(names.AttrSnapshotID, snapshotId)
 		d.Set(names.AttrThroughput, volume.Throughput)
@@ -398,6 +391,10 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 
 	volume, err := findEBSVolumeByID(ctx, conn, d.Id())
 
+	// The schema requires an availability zone, so an empty one means there is no prior state:
+	// the volume is being imported.
+	importing := d.Get(names.AttrAvailabilityZone).(string) == ""
+
 	if !d.IsNewResource() && tfresource.NotFound(err) {
 		volumeId := d.Id()
 
@@ -424,6 +421,25 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s)", volumeId)
 				}
 
+				// With no state to keep, the attributes the datafy volumes share with the
+				// source volume they replace are read from one of them, and the datafy
+				// attributes from the array shape Datafy reports, so the configuration must
+				// state that shape.
+				if importing {
+					volume := dvo.Volumes[0]
+					resourceEBSVolumeFlatten(ctx, meta, &volume, d)
+					d.Set("outpost_arn", datafyOutpostARN(&volume, volumeId))
+					d.Set("final_snapshot", false)
+
+					if mode := datafyVolume.Mode; mode != nil {
+						d.Set(datafy.AttrAutoscaling, mode.Autoscaler)
+						d.Set(datafy.AttrPerformance, mode.Performance)
+						if mode.Performance {
+							d.Set(datafy.AttrPerformanceTier, mode.ArraySize)
+						}
+					}
+				}
+
 				d.Set(names.AttrSize, datafyVolume.Size)
 				d.Set(names.AttrIOPS, datafyVolume.Iops)
 				d.Set(names.AttrThroughput, datafyVolume.Throughput)
@@ -444,6 +460,19 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 		return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s): %s", d.Id(), err)
 	}
 
+	// A datafy volume is owned by Datafy as part of the volume it replaces; managing it on its
+	// own would let Terraform modify or delete a piece of that volume.
+	if importing && datafy.IsManagedByDatafy(volume.Tags) {
+		return sdkdiag.AppendErrorf(diags, "can't import EBS Volume (%s): it is a datafy volume, import the EBS Volume it replaces (%s) instead", d.Id(), datafy.GetSourceVolumeId(volume.Tags))
+	}
+
+	resourceEBSVolumeFlatten(ctx, meta, volume, d)
+
+	return diags
+}
+
+// resourceEBSVolumeFlatten sets d from volume, with the ARN naming d.Id().
+func resourceEBSVolumeFlatten(ctx context.Context, meta any, volume *awstypes.Volume, d *schema.ResourceData) {
 	snapshotId := volume.SnapshotId
 	if dsnapId := datafy.GetRestoredFromSnapshotId(volume.Tags); dsnapId != "" {
 		snapshotId = aws.String(dsnapId)
@@ -470,8 +499,6 @@ func resourceEBSVolumeRead(ctx context.Context, d *schema.ResourceData, meta any
 	d.Set(names.AttrType, volume.VolumeType)
 
 	setTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
-
-	return diags
 }
 
 func resourceEBSVolumeUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
@@ -705,6 +732,17 @@ func deleteEBSVolume(ctx context.Context, conn *ec2.Client, vid string, timeout 
 		return fmt.Errorf("waiting for EBS Volume (%s) delete: %w", vid, err)
 	}
 	return nil
+}
+
+// datafyOutpostARN returns the outpost ARN of a datafy volume with the datafy volume's ID
+// replaced by sourceVolumeId, the ID of the volume it replaces, or nil if it has none.
+func datafyOutpostARN(volume *awstypes.Volume, sourceVolumeId string) *string {
+	if volume.OutpostArn == nil {
+		return nil
+	}
+
+	outpostArn := strings.ReplaceAll(aws.ToString(volume.OutpostArn), aws.ToString(volume.VolumeId), sourceVolumeId)
+	return &outpostArn
 }
 
 // Overridable in tests to avoid 30s/10s waits.
