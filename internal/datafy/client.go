@@ -40,6 +40,9 @@ type CreateVolumeFromSnapshotRequest struct {
 	Iops             int32
 	Throughput       int32
 	Tags             map[string]string
+	Autoscaling      *bool
+	Performance      *bool
+	PerformanceTier  int32
 }
 
 type ModifyVolumeRequest struct {
@@ -72,6 +75,9 @@ type createFromSnapshotsVolumeProperties struct {
 	VolumeIops       int32  `json:"volumeIops"`
 	VolumeThroughput int32  `json:"volumeThroughput"`
 	Tags             []tags `json:"tags"`
+	Autoscaling      *bool  `json:"autoscaling,omitempty"`
+	Performance      *bool  `json:"performance,omitempty"`
+	PerformanceTier  int32  `json:"performanceTier,omitempty"`
 }
 
 type createFromSnapshotsRequest struct {
@@ -192,6 +198,9 @@ func (c *ClientImpl) CreateVolumeFromSnapshot(req CreateVolumeFromSnapshotReques
 			VolumeThroughput: req.Throughput,
 			AvailabilityZone: req.AvailabilityZone,
 			Tags:             tagsList(req.Tags),
+			Autoscaling:      req.Autoscaling,
+			Performance:      req.Performance,
+			PerformanceTier:  req.PerformanceTier,
 		},
 	}
 
