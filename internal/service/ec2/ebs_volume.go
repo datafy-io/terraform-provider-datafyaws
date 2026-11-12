@@ -28,6 +28,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -660,30 +661,65 @@ func resourceEBSVolumeDelete(ctx context.Context, d *schema.ResourceData, meta i
 		}
 	}
 
-	for _, vid := range volumesIDs {
-		log.Printf("[DEBUG] Deleting EBS Volume: %s", d.Id())
-		_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, d.Timeout(schema.TimeoutDelete),
-			func() (interface{}, error) {
-				return conn.DeleteVolumeWithContext(ctx, &ec2.DeleteVolumeInput{
-					VolumeId: aws.String(vid),
-				})
-			},
-			errCodeVolumeInUse)
+	timeout := d.Timeout(schema.TimeoutDelete)
 
-		if tfawserr.ErrCodeEquals(err, errCodeInvalidVolumeNotFound) {
-			return diags
+	if len(volumesIDs) == 1 {
+		if err := deleteEBSVolume(ctx, conn, volumesIDs[0], timeout); err != nil {
+			return sdkdiag.AppendFromErr(diags, err)
 		}
+		return diags
+	}
 
+	sourceID := d.Id()
+	errs := make([]error, len(volumesIDs))
+	var g errgroup.Group
+	g.SetLimit(maxConcurrentVolumeDeletes)
+	for i, vid := range volumesIDs {
+		i, vid := i, vid
+		g.Go(func() error {
+			if err := deleteEBSVolume(ctx, conn, vid, timeout); err != nil {
+				errs[i] = fmt.Errorf("datafy volume of EBS Volume (%s): %w", sourceID, err)
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	for _, err := range errs {
 		if err != nil {
-			return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s): %s", vid, err)
-		}
-
-		if _, err := WaitVolumeDeleted(ctx, conn, vid, d.Timeout(schema.TimeoutDelete)); err != nil {
-			return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) delete: %s", d.Id(), err)
+			diags = sdkdiag.AppendFromErr(diags, err)
 		}
 	}
 
 	return diags
+}
+
+// maxConcurrentVolumeDeletes bounds parallel DeleteVolume calls per resource.
+const maxConcurrentVolumeDeletes = 8
+
+// deleteEBSVolume deletes a single volume and waits for it to disappear.
+// A volume that no longer exists is treated as deleted.
+func deleteEBSVolume(ctx context.Context, conn *ec2.EC2, vid string, timeout time.Duration) error {
+	log.Printf("[DEBUG] Deleting EBS Volume: %s", vid)
+
+	_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, timeout,
+		func() (interface{}, error) {
+			return conn.DeleteVolumeWithContext(ctx, &ec2.DeleteVolumeInput{
+				VolumeId: aws.String(vid),
+			})
+		},
+		errCodeVolumeInUse)
+	if tfawserr.ErrCodeEquals(err, errCodeInvalidVolumeNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("deleting EBS Volume (%s): %w", vid, err)
+	}
+
+	if _, err := WaitVolumeDeleted(ctx, conn, vid, timeout); err != nil {
+		return fmt.Errorf("waiting for EBS Volume (%s) delete: %w", vid, err)
+	}
+	return nil
 }
 
 // Overridable in tests to avoid 30s/10s waits.
