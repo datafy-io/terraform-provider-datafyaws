@@ -55,6 +55,24 @@ func RemoveDatafyTags(tags []*ec2.Tag) []*ec2.Tag {
 	})
 }
 
+// IsManagedByDatafy reports whether the tags mark a resource Datafy created and owns.
+func IsManagedByDatafy(tags []*ec2.Tag) bool {
+	return slices.Any(tags, func(t *ec2.Tag) bool {
+		return aws.StringValue(t.Key) == managedByTagKey && aws.StringValue(t.Value) == managedByTagValue
+	})
+}
+
+// GetSourceVolumeId returns the ID of the volume a datafy volume replaces from the datafy
+// volume's tags, or an empty string if the tags don't name one.
+func GetSourceVolumeId(tags []*ec2.Tag) string {
+	for _, t := range tags {
+		if aws.StringValue(t.Key) == sourceVolumeTagKey {
+			return aws.StringValue(t.Value)
+		}
+	}
+	return ""
+}
+
 func GetRestoredFromSnapshotId(tags []*ec2.Tag) string {
 	for _, t := range tags {
 		if aws.StringValue(t.Key) == restoredFromSnapshotIdTagKey {
