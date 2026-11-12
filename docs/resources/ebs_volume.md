@@ -72,7 +72,7 @@ The following are **creation parameters**. They take effect only when the volume
 
 - `type` must be `"gp3"`.
 - With `datafy_performance`, `iops` and `throughput` are what the whole array delivers, not per EBS volume. `throughput` can be up to 1000 MiB/s times `datafy_performance_tier`; without `datafy_performance` the gp3 range of 125-1000 MiB/s applies. The provider does not range-check `iops`; Datafy sizes the array to deliver it.
-- Datafy receives `availability_zone`, `size`, `iops`, `throughput`, `encrypted`, `kms_key_id`, `tags`, and the three `datafy_*` arguments. Do not combine them with `snapshot_id`, `multi_attach_enabled`, or `outpost_arn`; those are not applied to a Datafy volume.
+- Datafy receives `availability_zone`, `size`, `iops`, `throughput`, `encrypted`, `kms_key_id`, `tags`, and the three `datafy_*` arguments. Do not combine them with an EBS snapshot (`snap-…`) in `snapshot_id`, `multi_attach_enabled`, or `outpost_arn`; those are not applied to a Datafy volume. To restore from a Datafy snapshot, see [Restoring from a Datafy snapshot](#restoring-from-a-datafy-snapshot).
 - The volume is Datafy-managed from creation.
 - The one exception to "cannot be removed": once the volume is no longer datafied, you can delete these arguments from the configuration. This only updates state; the volume itself is not changed.
 - The one exception to "cannot be added": when state does not hold an argument (a volume datafied outside Terraform, or one from a provider release that predates it), you can add it with the value the volume has, as Datafy reports it. This only updates state; the volume itself is not changed.
@@ -85,7 +85,9 @@ Releases up to and including 5100.4.0 had a single argument, `autoscaling_native
 
 To create a volume from a Datafy snapshot, set `snapshot_id` to the Datafy snapshot ID (`dsnap-…`).
 
-- Datafy receives `availability_zone`, `iops`, `throughput`, and `tags`. The size, type, and encryption come from the snapshot. If you set `size` or `type`, set them to the values the restored volume has, otherwise the next plan shows a change that Datafy rejects.
+- The restored volume has the same Datafy configuration as the volume the snapshot was taken of. The `datafy_*` arguments are optional: those you set must match that volume, or Datafy rejects the restore. Setting `datafy_autoscaling` or `datafy_performance` to true also requires `type = "gp3"`, as for any Datafy volume.
+- When the snapshot's volume was a performance array, `iops` and `throughput` are what the whole array delivers, and default to 3000 IOPS and 125 MiB/s times `datafy_performance_tier`. Otherwise they are per EBS volume and default to 3000 IOPS and 125 MiB/s.
+- Datafy receives `availability_zone`, `iops`, `throughput`, `tags`, and the `datafy_*` arguments you set. The size, type, and encryption come from the snapshot. If you set `size` or `type`, set them to the values the restored volume has, otherwise the next plan shows a change that Datafy rejects.
 - The restored volume is Datafy-managed.
 - A Datafy snapshot is backed by EBS snapshots (`snap-…`) in your account. Using one of those EBS snapshots as `snapshot_id` fails at apply time with an error naming the Datafy snapshot to use instead.
 
