@@ -1124,6 +1124,7 @@ func (p *servicePackage) SDKResources(ctx context.Context) []*inttypes.ServicePa
 			//Identity: inttypes.RegionalSingleParameterIdentity(names.AttrID),
 			Import: inttypes.SDKv2Import{
 				WrappedImport: true,
+				ImportID:      ebsVolumeImportID{},
 			},
 		},
 		{

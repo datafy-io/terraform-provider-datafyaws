@@ -10,11 +10,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/aws-sdk-go-base/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -183,9 +185,21 @@ func resourceVolumeAttachmentRead(ctx context.Context, d *schema.ResourceData, m
 		// if not found on aws, it may mean we datafied it and deleted the volume
 		dc := meta.(*conns.AWSClient).DatafyClient(ctx)
 		if datafyVolume, err := dc.GetVolume(volumeID); err == nil {
-			// if we are managing this volume, just return the state as is
+			// A managed volume is attached while any of its datafy volumes is attached to the
+			// instance; the datafy volumes' device names are Datafy's, not device_name.
 			if datafyVolume.IsManaged {
-				return diags
+				dvo, err := conn.DescribeVolumes(ctx, datafy.DescribeDatafiedVolumesInput(volumeID))
+				if err != nil {
+					return sdkdiag.AppendErrorf(diags, "can't find datafy volumes of EBS volume (%s) Attachement (%s): %s", volumeID, instanceID, err)
+				}
+
+				if slices.ContainsFunc(dvo.Volumes, func(volume awstypes.Volume) bool {
+					return slices.ContainsFunc(volume.Attachments, func(attachment awstypes.VolumeAttachment) bool {
+						return aws.ToString(attachment.InstanceId) == instanceID
+					})
+				}) {
+					return diags
+				}
 			}
 
 			// if the volume was replaced (new source due to undatafy), it means the new
