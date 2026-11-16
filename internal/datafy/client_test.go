@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) (Client, func()) {
@@ -161,6 +163,61 @@ func TestCreateDatafiedVolume_flags(t *testing.T) {
 			defer cleanup()
 
 			if _, err := client.CreateDatafiedVolume(testCase.request); err != nil {
+				t.Fatalf("Expected no error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestCreateVolumeFromSnapshot_mode(t *testing.T) {
+	tests := []struct {
+		name string
+		req  CreateVolumeFromSnapshotRequest
+		// want is the request body's mode fields; an absent key must be absent from the body.
+		want map[string]any
+	}{
+		{
+			name: "no mode stated",
+			req:  CreateVolumeFromSnapshotRequest{DatafySnapshotId: "dsnap-1"},
+			want: map[string]any{},
+		},
+		{
+			name: "pair",
+			req:  CreateVolumeFromSnapshotRequest{DatafySnapshotId: "dsnap-1", Autoscaling: aws.Bool(true), Performance: aws.Bool(false)},
+			want: map[string]any{"autoscaling": true, "performance": false},
+		},
+		{
+			name: "pinned performance array",
+			req:  CreateVolumeFromSnapshotRequest{DatafySnapshotId: "dsnap-1", Autoscaling: aws.Bool(false), Performance: aws.Bool(true), PerformanceTier: 6},
+			want: map[string]any{"autoscaling": false, "performance": true, "performanceTier": float64(6)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, cleanup := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					VolumeProperties map[string]any `json:"volumeProperties"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatalf("decoding request body: %v", err)
+				}
+				for _, key := range []string{"autoscaling", "performance", "performanceTier"} {
+					got, present := body.VolumeProperties[key]
+					want, wanted := tt.want[key]
+					if present != wanted || got != want {
+						t.Errorf("%s: got %v (present %t), want %v (present %t)", key, got, present, want, wanted)
+					}
+				}
+
+				w.WriteHeader(http.StatusOK)
+				if err := json.NewEncoder(w).Encode(RestoredVolume{VolumeId: "vol-1", VolumeSizeGB: 10}); err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
+			}))
+			defer cleanup()
+
+			if _, err := client.CreateVolumeFromSnapshot(tt.req); err != nil {
 				t.Fatalf("Expected no error, got: %v", err)
 			}
 		})
