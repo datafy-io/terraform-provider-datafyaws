@@ -316,6 +316,23 @@ func TestDatafyCustomizeDiffCreatePlan(t *testing.T) {
 			wantErr: "`datafy_performance_tier` must be set when `datafy_performance` is true",
 		},
 		{
+			name: "a restore from a Datafy snapshot states its mode",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSnapshotID:       "dsnap-0123456789abcdef0",
+				names.AttrType:             string(awstypes.VolumeTypeGp3),
+				datafy.AttrAutoscaling:     true,
+			},
+			wantType: string(awstypes.VolumeTypeGp3),
+		},
+		{
+			name: "a restore from a Datafy snapshot takes the snapshot's mode",
+			config: map[string]any{
+				names.AttrAvailabilityZone: "us-east-1a",
+				names.AttrSnapshotID:       "dsnap-0123456789abcdef0",
+			},
+		},
+		{
 			name: "a datafy volume needs a type",
 			config: map[string]any{
 				names.AttrAvailabilityZone: "us-east-1a",
