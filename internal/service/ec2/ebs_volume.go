@@ -248,8 +248,7 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 	}
 
 	if snapshotId := aws.StringValue(input.SnapshotId); strings.HasPrefix(snapshotId, "dsnap-") {
-		dc := meta.(*conns.AWSClient).DatafyClient()
-		restoredVolume, err := dc.CreateVolumeFromSnapshot(datafy.CreateVolumeFromSnapshotRequest{
+		restoreRequest := datafy.CreateVolumeFromSnapshotRequest{
 			DatafySnapshotId: snapshotId,
 			AvailabilityZone: aws.StringValue(input.AvailabilityZone),
 			Iops:             int32(aws.Int64Value(input.Iops)),
@@ -266,7 +265,21 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 				}
 				return tags
 			}(),
-		})
+		}
+		// A datafy mode attribute goes to Datafy only when set, which compares it with the
+		// snapshot's mode; one left out restores the snapshot's own.
+		if v, ok := d.GetOk(datafy.AttrAutoscaling); ok {
+			restoreRequest.Autoscaling = aws.Bool(v.(bool))
+		}
+		if v, ok := d.GetOk(datafy.AttrPerformance); ok {
+			restoreRequest.Performance = aws.Bool(v.(bool))
+		}
+		if v, ok := d.GetOk(datafy.AttrPerformanceTier); ok {
+			restoreRequest.PerformanceTier = int32(v.(int))
+		}
+
+		dc := meta.(*conns.AWSClient).DatafyClient()
+		restoredVolume, err := dc.CreateVolumeFromSnapshot(restoreRequest)
 		if err != nil {
 			return sdkdiag.AppendErrorf(diags, "creating EBS Volume from datafy snapshot (%s): %s", snapshotId, err)
 		}
@@ -294,16 +307,23 @@ func resourceEBSVolumeCreate(ctx context.Context, d *schema.ResourceData, meta i
 			AccountID: meta.(*conns.AWSClient).AccountID,
 			Resource:  fmt.Sprintf("volume/%s", d.Id()),
 		}
+		// A leg carries only its share of a performance array's iops and throughput; the
+		// volume's own values are the ones Datafy reports, as on Read.
+		datafyVolume, err := dc.GetVolume(d.Id())
+		if err != nil {
+			return sdkdiag.AppendErrorf(diags, "reading EBS Volume (%s) from Datafy: %s", d.Id(), err)
+		}
+
 		d.Set("arn", arn.String())
 		d.Set("availability_zone", volume.AvailabilityZone)
 		d.Set("encrypted", volume.Encrypted)
-		d.Set("iops", volume.Iops)
+		d.Set("iops", datafyVolume.Iops)
 		d.Set("kms_key_id", volume.KmsKeyId)
 		d.Set("multi_attach_enabled", volume.MultiAttachEnabled)
 		d.Set("outpost_arn", datafyOutpostARN(volume, d.Id()))
 		d.Set("size", restoredVolume.VolumeSizeGB)
 		d.Set("snapshot_id", snapshotId)
-		d.Set("throughput", volume.Throughput)
+		d.Set("throughput", datafyVolume.Throughput)
 		d.Set("type", volume.VolumeType)
 
 		SetTagsOut(ctx, datafy.RemoveDatafyTags(volume.Tags))
