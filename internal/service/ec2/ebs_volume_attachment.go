@@ -231,6 +231,10 @@ func resourceVolumeAttachmentRead(ctx context.Context, d *schema.ResourceData, m
 	return diags
 }
 
+// datafyDetachDelay is the initial wait before polling a datafy detach: the agent may be busy
+// (e.g. redistributing) and take longer than 10s to actually detach the devices.
+const datafyDetachDelay = 60 * time.Second
+
 func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Conn()
@@ -271,7 +275,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 			}
 
 			for id, dn := range volumesToDelete {
-				if _, err := WaitVolumeAttachmentDeleted(ctx, conn, id, instanceID, dn, d.Timeout(schema.TimeoutDelete)); err != nil {
+				if _, err := WaitVolumeAttachmentDeleted(ctx, conn, id, instanceID, dn, d.Timeout(schema.TimeoutDelete), datafyDetachDelay); err != nil {
 					return sdkdiag.AppendErrorf(diags, "waiting for datafy EBS Volume (%s) for EBS volume (%s) Attachment (%s) delete: %s", id, volumeID, d.Id(), err)
 				}
 			}
@@ -310,7 +314,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 		return sdkdiag.AppendErrorf(diags, "deleting EBS Volume (%s) Attachment (%s): %s", volumeID, instanceID, err)
 	}
 
-	if _, err := WaitVolumeAttachmentDeleted(ctx, conn, volumeID, instanceID, deviceName, d.Timeout(schema.TimeoutDelete)); err != nil {
+	if _, err := WaitVolumeAttachmentDeleted(ctx, conn, volumeID, instanceID, deviceName, d.Timeout(schema.TimeoutDelete), 10*time.Second); err != nil {
 		return sdkdiag.AppendErrorf(diags, "waiting for EBS Volume (%s) Attachment (%s) delete: %s", volumeID, instanceID, err)
 	}
 
