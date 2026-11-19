@@ -3011,13 +3011,13 @@ func waitDatafyVolumeAttachmentCreated(ctx context.Context, conn *ec2.Client, vo
 	return nil, err
 }
 
-func waitVolumeAttachmentDeleted(ctx context.Context, conn *ec2.Client, volumeID, instanceID, deviceName string, timeout time.Duration) (*awstypes.VolumeAttachment, error) {
+func waitVolumeAttachmentDeleted(ctx context.Context, conn *ec2.Client, volumeID, instanceID, deviceName string, timeout, delay time.Duration) (*awstypes.VolumeAttachment, error) {
 	stateConf := &retry.StateChangeConf{
 		Pending:    enum.Slice(awstypes.VolumeAttachmentStateDetaching),
 		Target:     []string{},
 		Refresh:    statusVolumeAttachment(conn, volumeID, instanceID, deviceName),
 		Timeout:    timeout,
-		Delay:      10 * time.Second,
+		Delay:      delay,
 		MinTimeout: 3 * time.Second,
 	}
 
