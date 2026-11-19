@@ -281,7 +281,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 			}
 
 			for id, dn := range volumesToDelete {
-				if _, err := waitVolumeAttachmentDeleted(ctx, conn, id, instanceID, dn, d.Timeout(schema.TimeoutDelete)); err != nil {
+				if _, err := waitDatafyVolumeAttachmentDeleted(ctx, conn, id, instanceID, dn, d.Timeout(schema.TimeoutDelete)); err != nil {
 					return sdkdiag.AppendErrorf(diags, "waiting for datafy EBS Volume (%s) for EBS volume (%s) Attachment (%s) delete: %s", id, volumeID, d.Id(), err)
 				}
 			}
@@ -505,6 +505,27 @@ func waitVolumeAttachmentDeleted(ctx context.Context, conn *ec2.Client, volumeID
 		Timeout:    timeout,
 		Delay:      10 * time.Second,
 		MinTimeout: 3 * time.Second,
+	}
+
+	outputRaw, err := stateConf.WaitForStateContext(ctx)
+
+	if output, ok := outputRaw.(*awstypes.VolumeAttachment); ok {
+		return output, err
+	}
+
+	return nil, err
+}
+
+// waitDatafyVolumeAttachmentDeleted waits for a datafy-managed volume attachment to go away. The Datafy agent
+// may be busy (e.g. redistributing) when the detach request is accepted, so the volume can stay
+// "attached" for a while before it starts detaching: keep polling every 10s until the timeout.
+func waitDatafyVolumeAttachmentDeleted(ctx context.Context, conn *ec2.Client, volumeID, instanceID, deviceName string, timeout time.Duration) (*awstypes.VolumeAttachment, error) {
+	stateConf := &retry.StateChangeConf{
+		Pending:      enum.Slice(awstypes.VolumeAttachmentStateAttached, awstypes.VolumeAttachmentStateDetaching),
+		Target:       []string{},
+		Refresh:      statusVolumeAttachment(ctx, conn, volumeID, instanceID, deviceName),
+		Timeout:      timeout,
+		PollInterval: 10 * time.Second,
 	}
 
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
