@@ -268,7 +268,7 @@ func resourceVolumeAttachmentDelete(ctx context.Context, d *schema.ResourceData,
 			}
 
 			for id, dn := range volumesToDelete {
-				if _, err := waitVolumeAttachmentDeleted(ctx, conn, id, instanceID, dn, d.Timeout(schema.TimeoutDelete)); err != nil {
+				if _, err := waitDatafyVolumeAttachmentDeleted(ctx, conn, id, instanceID, dn, d.Timeout(schema.TimeoutDelete)); err != nil {
 					return sdkdiag.AppendErrorf(diags, "waiting for datafy EBS Volume (%s) for EBS volume (%s) Attachment (%s) delete: %s", id, volumeID, d.Id(), err)
 				}
 			}
