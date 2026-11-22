@@ -1965,6 +1965,11 @@ data "aws_ami" "amzn-ami-minimal-hvm-ebs" {
   }
 
   filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
     name   = "root-device-type"
     values = ["ebs"]
   }
