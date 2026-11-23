@@ -33,8 +33,23 @@ jobs:
         run: make datafy-test
 
   acc-tests:
+    name: acc-tests (terraform ${{ matrix.terraform_version }})
     needs: [ build ]
     runs-on: datafy-16-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform_version:
+          # Last MPL-licensed release and a common pin; predates resource identity, so the
+          # provider's identity handling runs against a core that ignores it.
+          - "1.5.7"
+          # First release with resource identity; fails to decode a stored identity that the
+          # provider's identity schema does not declare.
+          - "1.12.2"
+          # Pinned current release; a failure here and not on latest (or the reverse) separates a
+          # provider regression from a change in a newer Terraform release.
+          - "1.15.5"
+          - "latest"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,7 +64,7 @@ jobs:
           role-to-assume: ${{ secrets.DEVELOPMENT_AWS_ROLE_ARN }}
       - uses: hashicorp/setup-terraform@633666f66e0061ca3b725c73b2ec20cd13a8fdd1
         with:
-          terraform_version: 1.15.5
+          terraform_version: ${{ matrix.terraform_version }}
           terraform_wrapper: false
       - name: testacc
         run: make datafy-testacc
