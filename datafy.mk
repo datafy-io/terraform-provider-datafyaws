@@ -19,7 +19,7 @@ datafy-test:
 
 datafy-testacc:
 	@echo "make: Running acceptance tests..."
-	TF_ACC=1 go test ./internal/service/ec2/... -v -count $(TEST_COUNT) -parallel $(ACCTEST_PARALLELISM) -run='^(TestAccDatafy|TestAccEC2EBS(Snapshot|Volume))' $(TESTARGS) -timeout $(ACCTEST_TIMEOUT) -vet=off
+	TF_ACC=1 go test ./internal/service/ec2/... -v -count $(TEST_COUNT) -parallel $(ACCTEST_PARALLELISM) -run='^(TestAccDatafy|TestAccEC2EBSVolume_|TestAccEC2EBSVolumeDataSource_|TestAccEC2EBSVolumesDataSource_|TestAccEC2EBSVolumeAttachment_|TestAccEC2EBSEBSVolumeAttachment_)' $(TESTARGS) -timeout $(ACCTEST_TIMEOUT) -vet=off
 
 .PHONY: datafy-rebase
 datafy-rebase:
