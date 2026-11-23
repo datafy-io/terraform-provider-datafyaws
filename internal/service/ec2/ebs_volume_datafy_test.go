@@ -5,7 +5,10 @@ package ec2_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	goversion "github.com/hashicorp/go-version"
 	sdkacctest "github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
@@ -1117,7 +1121,10 @@ func TestAccDatafyEC2EBSVolume_importManaged(t *testing.T) {
 	var v ec2.Volume
 	var dv datafyVolume
 	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		PreCheck: func() {
+			acctest.PreCheck(ctx, t)
+			testAccDatafyPreCheckTerraformVersion(t, "1.7.0")
+		},
 		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
@@ -1359,7 +1366,10 @@ func testAccDatafyImportTestCase(ctx context.Context, t *testing.T, config strin
 	resourceName := "aws_ebs_volume.test"
 
 	return resource.TestCase{
-		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		PreCheck: func() {
+			acctest.PreCheck(ctx, t)
+			testAccDatafyPreCheckTerraformVersion(t, "1.7.0")
+		},
 		ErrorCheck:               acctest.ErrorCheck(t, ec2.EndpointsID),
 		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
 		CheckDestroy:             testAccDatafyCheckVolumeDestroy(ctx),
@@ -1432,4 +1442,44 @@ removed {
   }
 }
 `
+}
+
+// testAccDatafyPreCheckTerraformVersion skips t when the Terraform CLI the acceptance test runs is
+// older than minVersion. It resolves the CLI like the plugin SDK test harness: TF_ACC_TERRAFORM_PATH,
+// then TF_ACC_TERRAFORM_VERSION, then terraform on PATH. With none of them the harness installs the
+// latest release, which is assumed to satisfy minVersion.
+func testAccDatafyPreCheckTerraformVersion(t *testing.T, minVersion string) {
+	t.Helper()
+
+	tfVersion := strings.TrimPrefix(os.Getenv("TF_ACC_TERRAFORM_VERSION"), "v")
+	if tfPath := os.Getenv("TF_ACC_TERRAFORM_PATH"); tfPath != "" || tfVersion == "" {
+		if tfPath == "" {
+			var err error
+			if tfPath, err = exec.LookPath("terraform"); err != nil {
+				return
+			}
+		}
+
+		out, err := exec.Command(tfPath, "version", "-json").Output()
+		if err != nil {
+			t.Fatalf("running %s version: %s", tfPath, err)
+		}
+
+		var v struct {
+			TerraformVersion string `json:"terraform_version"`
+		}
+		if err := json.Unmarshal(out, &v); err != nil {
+			t.Fatalf("parsing %s version output: %s", tfPath, err)
+		}
+		tfVersion = v.TerraformVersion
+	}
+
+	current, err := goversion.NewVersion(tfVersion)
+	if err != nil {
+		t.Fatalf("parsing Terraform version %q: %s", tfVersion, err)
+	}
+
+	if current.LessThan(goversion.Must(goversion.NewVersion(minVersion))) {
+		t.Skipf("Terraform %s is older than %s", current, minVersion)
+	}
 }
