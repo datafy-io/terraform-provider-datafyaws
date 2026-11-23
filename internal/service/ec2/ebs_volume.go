@@ -32,7 +32,6 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
-	inttypes "github.com/hashicorp/terraform-provider-aws/internal/types"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
 	"golang.org/x/sync/errgroup"
@@ -763,23 +762,6 @@ func deleteEBSVolume(ctx context.Context, conn *ec2.Client, vid string, timeout 
 		return fmt.Errorf("waiting for EBS Volume (%s) delete: %w", vid, err)
 	}
 	return nil
-}
-
-var _ inttypes.SDKv2ImportID = ebsVolumeImportID{}
-
-// ebsVolumeImportID is the import ID of a volume registered without an identity: the volume ID.
-type ebsVolumeImportID struct{}
-
-func (ebsVolumeImportID) Create(d *schema.ResourceData) string {
-	return d.Id()
-}
-
-func (ebsVolumeImportID) Parse(id string) (string, map[string]any, error) {
-	if id == "" {
-		return "", nil, errors.New("import ID must be the EBS Volume ID")
-	}
-
-	return id, nil, nil
 }
 
 // datafyOutpostARN returns the outpost ARN of a datafy volume with the datafy volume's ID
